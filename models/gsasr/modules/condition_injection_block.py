@@ -28,15 +28,42 @@ class ConditionInjectionBlock(nn.Module):
         """
         # Input is the feature map from the LR image. Shape: (B x C x H x W)
 
-        # Divide the input in windows. Shape: (B x C x H x W) -> (B*NumWindows x C x H x W)
+        # Divide the input in windows and reshape to (B*NumWindows x N x C), where N is wH*wW
 
-        # It goes into the WindowCrossAttention module
+        # Do Window Cross Attention
+
+        # The output (Gaussian Embeddings?) go into the next module (Gaussian Interaction Block)
+
         pass
 
 # Secondary modules
 class WindowCrossAttention(nn.Module):
-    def __init__(self):
+    # Questions:
+    # - What are heads and why do they use them in the Swin transformer? Do I need them?
+    # - In transformers, input is divided in tokens. Does ESDR already do this?
+
+    def __init__(self, dim, window_size, num_heads, kv_bias=True, attn_drop=0., proj_drop=0.):
         super().__init__()
+
+        # Relative position bias is a table with values for the attention bias depending on the position
+        self.relative_position_bias = nn.Parameter(torch.randn((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))
+
+        # Relative position index, calculated here and stored as a non trainable parameter using register_buffer
+        relative_position_index = torch.randn(1)
+        self.register_buffer('relative_position_index', relative_position_index)
+
+        # Since q and k, v come from different sources, just one Linear layer to extract k and v.
+        self.kv = nn.Linear(dim, dim * 2, bias=kv_bias)
+
+        # Dropout layer after attention
+        self.attn_drop = nn.Dropout(attn_drop)
+
+        # Final linear layer to project the output. Project where? I don't know yet
+        self.proj = nn.Linear(dim, dim)
+
+        # Dropout layer after projection
+        self.proj_drop = nn.Dropout(proj_drop)
+
         pass
 
     def forward(self, x, q):
@@ -47,18 +74,23 @@ class WindowCrossAttention(nn.Module):
         Returns:
             out: Currently unknown
         """
-        # Input: is the windowed feature map from the LR image. Shape: (B*NumWindows x C x WindowHeight x WindowWidth)
+        # Input is windowed feature map. Shape: (B*NumWindows x N x C), where N is wH*wW and C is the feature dimension.
 
         # Query comes in q
 
-        # Key is extracted from x
+        # Key an value extracted from x
 
-        # Value is extracted from x
+        # Get position bias from the relative position bias table
 
-        # In Swin Transformer, the qkv is extracted using a Linear layer: nn.Linear(dim, dim * 3, bias=qkv_bias[True by default])
+        # Calculate attention
 
-        # Perform cross attention as follows: Attention(Q, K, V) = SoftMax(QK^T/sqrt(d) + B)V
-        # where, B is the relative position bias in the feature map
+        # Apply dropout
+
+        # Apply projection	
+
+        # Apply dropout
+
+        # Return output
 
         pass
 
