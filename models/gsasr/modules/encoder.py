@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 # So the idea is as follows:
@@ -8,16 +9,22 @@ import torch.nn as nn
 class Encoder(nn.Module):
     def __init__(self, backbone, out_features):
         super().__init__()
+        kernel_size = 3
+
         self.backbone = backbone
-        self.feature_adapter = nn.Conv2d(backbone.out_dim, out_features, kernel_size=3)
+        self.feature_adapter = nn.Conv2d(backbone.out_features, out_features, kernel_size, padding=(kernel_size//2))
 
     def forward(self, x):
         out = self.backbone(x)
         out = self.feature_adapter(out)
-        # Check if I need to reshape or permute the output
         return out
 
-from models.backbones.edsr import EDSR
-
 if __name__ == '__main__':
-    backbone = EDSR()
+    from models.backbones import EDSR
+    backbone = EDSR(12, 16, 64)
+    encoder = Encoder(backbone, 128)
+    t = torch.randn(8, 12, 256, 256)
+    out = encoder(t)
+    print('Success!')
+    print(f'Output shape: {out.shape}')
+

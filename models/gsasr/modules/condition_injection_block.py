@@ -10,12 +10,9 @@ import torch.nn as nn
 
 # Main module
 class ConditionInjectionBlock(nn.Module):
-    def __init__(self, dim, window_size, num_heads, num_features, qkv_bias=True, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.window_size = window_size
-
-        # Embedding
-        self.embedding = nn.Parameter(torch.randn(1, window_size[0] * window_size[1], num_features)) # Shape must match B x N x C. C is the number of features in the feature map. N is the wH*wW. B is the batch size combined with the number of images.
 
         # Window Cross Attention
         self.window_cross_attention = WindowCrossAttention(
@@ -30,38 +27,35 @@ class ConditionInjectionBlock(nn.Module):
         Returns:
             windows: The previous tensor partitioned in H/wH x W/wW windows. Shape: (B x wH x wW x C)
         """
-        B, C, H, W = x.shape # Input shape
-        windows = x.permute(0, 2, 3, 1).contiguous()
+        B, H, W, C = x.shape
         windows = x.view(B, H // self.window_size[0], self.window_size[0], W // self.window_size[1], self.window_size[1], C)
-        windows = windows.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, self.window_size[0], self.window_size[1], C)
+        windows = windows.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, self.window_size[0] * self.window_size[1], C)
         return windows
 
-    def forward(self, x):
-        """
-        Args:
-            x: The feature map from the LR image. Shape: (B x C x H x W)
-        Returns:
-            out: Currently unknown
-        """
-        # Input is the feature map from the LR image. Shape: (B x C x H x W)
-        B, C, H, W = x.shape # Input shape.
+    def window_reverse(self, x, H, W):
+        B = int(x.shape[0] / (H * W / self.window_size[0] / self.window_size[1]))
+        x = x.view(B, H // self.window_size[0], W // self.window_size[1], self.window_size[0], self.window_size[1], -1)
+        x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
+        return x
 
+    def forward(self, x, embeds):
+        # Input is the feature map from the LR image. Shape: (B x H x W x C)
+        B_, H, W, C = x.shape # Input shape.
+        
         # Divide the input in windows and reshape to (B*NumWindows x N x C), where N is wH*wW
         out = self.window_partition(x) # (B * num_windows x wH x wW x C)
-        out = out.view(-1, self.window_size[0] * self.window_size[1], C) # (B * num_windows x N x C), where N is wH*wW
+        B = out.shape[0] # Update batch size
+        embeds = embeds.expand(B, -1, -1) # Expand the embeddings to match the batch size. Shape: (B * num_windows x N x C), where N is wH*wW
 
         # Do Window Cross Attention
-        out = self.window_cross_attention(out, self.embedding) # (B * num_windows x N x C)
+        out = self.window_cross_attention(embeds, out) # (B * num_windows x N x C)
 
-        # Here the original paper stacks the output, but they're already a single tensor.
+        # "Stack" embeds
+        out = self.window_reverse(out, H, W)
         return out
 
 # Secondary modules
 class WindowCrossAttention(nn.Module):
-    """
-    Window Based Cross Attention from Swin Transformer.
-    """
-
     def __init__(self, dim, window_size, num_heads, qkv_bias=True, attn_drop=0., proj_drop=0.):
         super().__init__()
 
@@ -77,7 +71,7 @@ class WindowCrossAttention(nn.Module):
         # Relative position index, calculated here and stored as a non trainable parameter using register_buffer
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w])) # 2 x wH x wW
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w], indexing='ij')) # 2 x wH x wW.
         coords_flatten = torch.flatten(coords, 1) # 2 x wH*wW
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :] # 2 x wH*wW x wH*wW, because PyTorch handles automatic broadcasting
         relative_coords = relative_coords.permute(1, 2, 0).contiguous() # wH*wW x wH*wW x 2
@@ -91,7 +85,7 @@ class WindowCrossAttention(nn.Module):
         self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
         self.q = nn.Linear(dim, dim, bias=qkv_bias)
 
-        # Dropout layer after attention
+        # Dropout layer after attention's softmax
         self.attn_drop = nn.Dropout(attn_drop)
 
         # Final linear layer to project the output. Project where? I don't know yet
@@ -102,11 +96,11 @@ class WindowCrossAttention(nn.Module):
 
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, e):
+    def forward(self, e, x):
         """
         Args:
             x: The windowed feature map from the LR image. Shape: (B*NumWindows x C x H x W)
-            q: The query extracted from the learnable embeddings E. Shape: (Unknown)
+            e: The query extracted from the learnable embeddings E. Shape: (B*NumWindows x N x C)
         Returns:
             out: Currently unknown
         """
@@ -114,7 +108,9 @@ class WindowCrossAttention(nn.Module):
         B, N, C = x.shape # Input shape. N is wH*wW and B is a combination of batch size and number of windows.
 
         # Get q, k, v from the embeds e and the input x
-        q = self.q(e.expand(B, -1, -1)).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3) # B x num_heads x N x C // num_heads
+        q = self.q(e)
+        q = q.reshape(B, N, self.num_heads, C // self.num_heads)
+        q = q.permute(0, 2, 1, 3).contiguous() # B x num_heads x N x C // num_heads
         kv = self.kv(x).reshape(B, N, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4) # 2 x B x num_heads x N x C // num_heads
         k, v = kv[0], kv[1] # B x num_heads x N x C // num_heads
 
@@ -140,8 +136,9 @@ class WindowCrossAttention(nn.Module):
 
 # Test section
 if __name__ == '__main__':
-    module = ConditionInjectionBlock(96, (4, 4), 3, 96)
-    image = torch.randn(8, 96, 64, 164)
-    output = module(image)
+    module = ConditionInjectionBlock(96, (4, 4), 3)
+    image = torch.randn(8, 64, 64, 96)
+    embeds = torch.randn(1, 16, 96)
+    output = module(image, embeds)
     print('Success!')
     print(f'Output shape: {output.shape}')
