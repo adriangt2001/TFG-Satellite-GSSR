@@ -13,6 +13,7 @@ class GSASR(nn.Module):
             out_features, # Encoder & Condition Injection Block & Gaussian Interaction Block
             window_size, num_heads, # Condition Injection Block & Gaussian Interaction Block
             n_gaussian_interaction_blocks, # Gaussian Interaction Block
+            num_colors, # Gaussian Primary Head
             m=16,
             mlp_ratio=4.,
     ):
@@ -37,33 +38,34 @@ class GSASR(nn.Module):
             for _ in range(n_gaussian_interaction_blocks)
         ]
         self.gaussian_interaction_block = nn.ModuleList(gaussian_interaction_block)
-        # self.gaussian_primary_head = GaussianPrimaryHead(out_features, mlp_ratio)
+        self.gaussian_primary_head = GaussianPrimaryHead(out_features, num_colors)
 
     def forward(self, x, scaling_factor):
         B, C, H, W = x.shape
+        m_log = int(math.log2(self.m))
+        H_gauss, W_gauss = m_log * H, m_log * W
         out = self.encoder(x).permute(0, 2, 3, 1).contiguous() # (B x C x H x W) -> (B x H x W x C)
 
         # Get Reference position of each embed
-        i = torch.linspace(0, H, steps=H//self.window_size[0])
-        j = torch.linspace(0, W, steps=W//self.window_size[1])
+        i = torch.linspace(0, H, steps=H_gauss)
+        j = torch.linspace(0, W, steps=W_gauss)
         ref_pos = torch.stack(torch.meshgrid(i, j, indexing='ij'), dim=-1).view(-1, 2).unsqueeze(0) # (1 x num_windows x 2)
         
-        H, W = int(math.log2(self.m)) * H, int(math.log2(self.m)) * W
-        out = self.condition_injection_block(self.embedding, out).view(B, H*W, self.out_features)
+        out = self.condition_injection_block(self.embedding, out).view(B, H_gauss*W_gauss, self.out_features)
         
         mlp_out = self.mlp(scaling_factor).unsqueeze(1)
         for block in self.gaussian_interaction_block:
-            out = block(out, mlp_out, H, W)
+            out = block(out, mlp_out, H_gauss, W_gauss)
         
-        # out = self.gaussian_primary_head(out, ref_pos)
-        return out
+        opacity, color, std, position, corr = self.gaussian_primary_head(out, ref_pos)
+        return opacity, color, std, position, corr
 
 if __name__ == '__main__':
     from models.backbones import EDSR
     backbone = EDSR(12, 16, 64)
-    model = GSASR(backbone, 64, [4, 4], 4, 10)
+    model = GSASR(backbone, 64, [4, 4], 4, 10, 12)
     t = torch.randn(8, 12, 64, 64)
     scaling_factor = torch.randn(8, 1)
     out = model(t, scaling_factor)
     print('Success!')
-    print(f'Out shape: {out.shape}')
+    print(f'Out shape: {[feat.shape for feat in out]}')
