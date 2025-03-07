@@ -35,11 +35,12 @@ class CrossAttention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x, mlp_out):
-        B, N, C = x.shape
+        B1, N1, C1 = x.shape
+        B2, N2, C2 = mlp_out.shape
 
-        q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3).contiguous() # B x num_heads x N x C // num_heads
-        k = self.k(mlp_out).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3).contiguous() # B x num_heads x N x C // num_heads
-        v = self.v(mlp_out).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3).contiguous() # B x num_heads x N x C // num_heads
+        q = self.q(x).view(B1, N1, self.num_heads, C1 // self.num_heads).permute(0, 2, 1, 3).contiguous() # B x num_heads x N x C // num_heads
+        k = self.k(mlp_out).view(B2, N2, self.num_heads, C2 // self.num_heads).permute(0, 2, 1, 3).contiguous() # B x num_heads x N x C // num_heads
+        v = self.v(mlp_out).view(B2, N2, self.num_heads, C2 // self.num_heads).permute(0, 2, 1, 3).contiguous() # B x num_heads x N x C // num_heads
 
         # Attention(Q, K, V) = SoftMax((Q @ K^T)/d**0.5 + Bias) @ V
         attn = q * self.scale # Q / d**0.5
@@ -47,7 +48,7 @@ class CrossAttention(nn.Module):
         attn = self.softmax(attn) # SoftMax(...)
         attn = self.attn_drop(attn)
         attn = attn @ v # @ V
-        attn = attn.transpose(1, 2).reshape(B, N, C) # B x N x C
+        attn = attn.transpose(1, 2).contiguous().view(B1, N1, C1) # B x N x C
         attn = self.proj(attn) # B x N x C
         attn = self.proj_drop(attn)
 
@@ -62,10 +63,6 @@ class SwinBlock(nn.Module):
         # Part 1
         self.norm1 = nn.LayerNorm(dim)
         self.window_attention = WindowAttention(dim, window_size, num_heads, qkv_bias, attn_drop, proj_drop)
-        
-        # TODO: add this package to the environment and use this layer from the original SwinTransformer
-        # from timm.models.layers import DropPath
-        # self.drop_path = DropPath(0.1)
 
         # Part 2
         mlp_hidden_dim = int(dim * mlp_ratio)
