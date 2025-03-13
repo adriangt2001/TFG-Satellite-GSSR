@@ -7,12 +7,52 @@ from . import _C
 
 class _RasterizeGaussians(torch.autograd.Function):
     @staticmethod
-    def forward():
-        pass
+    def forward(
+        ctx,
+        opacity,
+        means,
+        stds,
+        rhos,
+        colors,
+        image_height,
+        image_width,
+        scale_factor,
+        raster_ratio
+    ):
+        args = (
+            opacity,
+            means,
+            stds,
+            rhos,
+            colors,
+            image_height,
+            image_width,
+            scale_factor,
+            raster_ratio
+        )
+
+        # The output of this methos should include relevant
+        # tensors for backward (Don't know which ones)
+        out_image = _C.rasterize_gaussians(*args)
+
+        ctx.num_rendered = num_rendered
+        ctx.save_for_backward()
 
     @staticmethod
-    def backward():
-        pass
+    def backward(
+        ctx,
+        
+    ):
+        args = (
+
+        )
+
+        # Invoke _C backward method
+
+        grads = (
+            
+            None,
+        )
 
 class GaussianRasterizer(nn.Module):
     def __init__(self):

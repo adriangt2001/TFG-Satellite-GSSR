@@ -9,11 +9,18 @@
  * For inquiries contact  george.drettakis@inria.fr
  */
 
- #include <torch/extension.h>
- #include "rasterize_points.h"
- 
- PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-   m.def("rasterize_gaussians", &RasterizeGaussiansCUDA);
-   m.def("rasterize_gaussians_backward", &RasterizeGaussiansBackwardCUDA);
-   m.def("mark_visible", &markVisible);
- }
+#ifndef CUDA_RASTERIZER_H_INCLUDED
+#define CUDA_RASTERIZER_H_INCLUDED
+
+namespace CudaRasterizer
+{
+    class Rasterizer
+    {
+    public:
+        static int forward();
+
+        static void backward();
+    };
+};
+
+#endif
