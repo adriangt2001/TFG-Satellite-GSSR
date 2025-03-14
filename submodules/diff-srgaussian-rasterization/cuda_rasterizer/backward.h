@@ -19,7 +19,23 @@
 namespace BACKWARD
 {
     void render(
-        const dim3 grid, dim3 block, );
+        const dim3 grid, dim3 block,
+        const int numGaussians,
+        const float* __restrict__ opacity,
+        const float2* __restrict__ means,
+        const float2* __restrict__ stds,
+        const float* __restrict__ rhos,
+        const float* __restrict__ colors,
+        const float* __restrict__ grad_output,
+        const int sH, int sW,
+        const float scaleFactor,
+        const float rasterRatio,
+        float* __restrict__ dL_dopacity,
+        float2* __restrict__ dL_dmeans,
+        float2* __restrict__ dL_dstds,
+        float* __restrict__ dL_drhos,
+        float* __restrict__ dL_dcolors
+    );
 }
 
-#endif
+#endif // CUDA_RASTERIZER_BACKWARD_H_INCLUDED

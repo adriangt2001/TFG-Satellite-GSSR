@@ -26,5 +26,16 @@ RasterizeGaussiansCUDA(
     const float raster_ratio,
 );
 
-std::tuple<>
-RasterizeGaussiansBackwardCUDA();
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+RasterizeGaussiansBackwardCUDA(
+    const torch::Tensor& opacity,
+    const torch::Tensor& means,
+    const torch::Tensor& stds,
+    const torch::Tensor& rhos,
+    const torch::Tensor& colors,
+    const torch::Tensor& grad_output,
+    const int image_height,
+    const int image_width,
+    const float scale_factor,
+    const float raster_ratio,
+);

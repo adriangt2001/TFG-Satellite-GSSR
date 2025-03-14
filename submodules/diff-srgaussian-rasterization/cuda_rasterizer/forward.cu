@@ -33,8 +33,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     float x = pixelX / scaleFactor;
     float y = pixelY / scaleFactor;
 
-    if (pixelX >= sW || pixelY >= sH)
-        return;
+    if (pixelX >= sW || pixelY >= sH) return;
 
     float rsH = rasterRatio * sH;
     float rsW = rasterRatio * sW;
@@ -43,17 +42,19 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         if (fabs(pixelX - mean[i].x) < rsW && fabs(pixelY - mean[i].y) < rsH)
         {
             // Eq. 1
-            float sdXY = sd[i].x * sd[i].y;
-            float sdX2 = sd[i].x * sd[i].x;
-            float sdY2 = sd[i].y * sd[i].y;
-            float beta = 1 - rho[i] * rho[i];
+            float stdXY = stds[i].x * stds[i].y;
+            float stdX2 = stds[i].x * stds[i].x;
+            float stdY2 = stds[i].y * stds[i].y;
+            float beta = 1 - rhos[i] * rhos[i];
             float betaRoot = sqrt(beta);
-            float deltaX2 = (x - mean[i].x) * (x - mean[i].x);
-            float deltaY2 = (y - mean[i].y) * (y - mean[i].y);
-            float deltaXY = (x - mean[i].x) * (y - mean[i].y);
+            float deltaX = (x - mean[i].x);
+            float deltaY = (y - mean[i].y);
+            float deltaX2 = deltaX * deltaX;
+            float deltaY2 = deltaY * deltaY;
+            float deltaXY = deltaX * deltaY;
             float exp1 = -1 / (2 * beta);
-            float exp2 = deltaX2 / sdX2 + deltaY2 / sdY2 - 2 * rho[i] * deltaXY / sdXY;
-            float f = 1 / (2 * M_PI * sdXY * betaRoot) * exp(exp1 * exp2);
+            float exp2 = deltaX2 / stdX2 + deltaY2 / stdY2 - 2 * rho[i] * deltaXY / stdXY;
+            float f = 1 / (2 * M_PI * stdXY * betaRoot) * exp(exp1 * exp2);
 
             // Eq. 2
             for (int c = 0; c < CHANNELS; ++c)
