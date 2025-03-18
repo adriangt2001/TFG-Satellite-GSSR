@@ -11,6 +11,9 @@
 
 #include <torch/extension.h>
 #include "cuda_rasterizer/config.h"
+#include "rasterize_pixels.h"
+#include "cuda_rasterizer/forward.h"
+#include "cuda_rasterizer/backward.h"
 #include <tuple>
 
 std::tuple<torch::Tensor>

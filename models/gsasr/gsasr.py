@@ -3,9 +3,7 @@ import torch.nn as nn
 import math
 
 from modules import Encoder, ConditionInjectionBlock, GaussianInteractionBlock, GaussianPrimaryHead
-from submodules import GaussianRasterizer
-
-# How does the MLP for scaling work?????
+from diff_srgaussian_rasterization import GaussianRasterizer
 
 class GSASR(nn.Module):
     def __init__(
@@ -44,16 +42,16 @@ class GSASR(nn.Module):
         self.gaussian_primary_head = GaussianPrimaryHead(out_features, num_colors)
         self.gaussian_rasterizer = GaussianRasterizer()
 
-    def forward(self, x, scaling_factor):
+    def forward(self, x: torch.Tensor, scaling_factor):
         B, C, H, W = x.shape
         m_log = int(math.log2(self.m))
         H_gauss, W_gauss = m_log * H, m_log * W
         out = self.encoder(x).permute(0, 2, 3, 1).contiguous() # (B x C x H x W) -> (B x H x W x C)
 
         # Get Reference position of each embed
-        i = torch.linspace(0, H, steps=H_gauss)
-        j = torch.linspace(0, W, steps=W_gauss)
-        ref_pos = torch.stack(torch.meshgrid(i, j, indexing='ij'), dim=-1).view(-1, 2).unsqueeze(0) # (1 x num_windows x 2)
+        i = torch.linspace(0, H, steps=H_gauss, device=x.device)
+        j = torch.linspace(0, W, steps=W_gauss, device=x.device)
+        ref_pos = torch.stack(torch.meshgrid(i, j, indexing='ij'), dim=-1).to(device=x.device).view(-1, 2).unsqueeze(0) # (1 x num_windows x 2)
         
         out = self.condition_injection_block(self.embedding, out).view(B, H_gauss*W_gauss, self.out_features)
         
