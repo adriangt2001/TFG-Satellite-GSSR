@@ -3,6 +3,7 @@ import torch.nn as nn
 import math
 
 from modules import Encoder, ConditionInjectionBlock, GaussianInteractionBlock, GaussianPrimaryHead
+from submodules import GaussianRasterizer
 
 # How does the MLP for scaling work?????
 
@@ -14,6 +15,7 @@ class GSASR(nn.Module):
             window_size, num_heads, # Condition Injection Block & Gaussian Interaction Block
             n_gaussian_interaction_blocks, # Gaussian Interaction Block
             num_colors, # Gaussian Primary Head
+            raster_ratio=0.1, # Gaussian Rasterizer
             m=16,
             mlp_ratio=4.,
     ):
@@ -21,6 +23,7 @@ class GSASR(nn.Module):
         self.m = m
         self.window_size = window_size
         self.out_features = out_features
+        self.raster_ratio = raster_ratio
 
         # Embedding
         self.embedding = nn.Parameter(torch.randn(1, m * window_size[0] * window_size[1], out_features)) # Shape must match B x N x C. C is the number of features in the feature map. N is the wH*wW. B is the batch size combined with the number of images.
@@ -39,6 +42,7 @@ class GSASR(nn.Module):
         ]
         self.gaussian_interaction_block = nn.ModuleList(gaussian_interaction_block)
         self.gaussian_primary_head = GaussianPrimaryHead(out_features, num_colors)
+        self.gaussian_rasterizer = GaussianRasterizer()
 
     def forward(self, x, scaling_factor):
         B, C, H, W = x.shape
@@ -58,7 +62,9 @@ class GSASR(nn.Module):
             out = block(out, mlp_out, H_gauss, W_gauss)
         
         opacity, color, std, position, corr = self.gaussian_primary_head(out, ref_pos)
-        return opacity, color, std, position, corr
+
+        out = self.gaussian_rasterizer(opacity, position, std, corr, color, H, W, scaling_factor, self.raster_ratio)
+        return out
 
 if __name__ == '__main__':
     from models.backbones import EDSR
@@ -68,4 +74,4 @@ if __name__ == '__main__':
     scaling_factor = torch.randn(8, 1)
     out = model(t, scaling_factor)
     print('Success!')
-    print(f'Out shape: {[feat.shape for feat in out]}')
+    print(f'Out shape: {out.shape}')

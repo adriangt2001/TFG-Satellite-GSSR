@@ -11,7 +11,6 @@
 
 #include <torch/extension.h>
 #include "cuda_rasterizer/config.h"
-#include "cuda_rasterizer/rasterizer.h"
 #include <tuple>
 
 std::tuple<torch::Tensor>
@@ -61,7 +60,7 @@ RasterizeGaussiansBackwardCUDA(
     const int image_height,
     const int image_width,
     const float scale_factor,
-    const float raster_ratio,
+    const float raster_ratio
 )
 {
     int numGaussians = means.size(0);
@@ -94,7 +93,7 @@ RasterizeGaussiansBackwardCUDA(
         reinterpret_cast<float2 *>(dL_dstds.data_ptr<float>()),
         dL_drhos.data_ptr<float>(),
         dL_dcolors.data_ptr<float>()
-    )
+    );
 
     return std::make_tuple(dL_dopacity, dL_dmeans, dL_dstds, dL_drhos, dL_dcolors);
 }

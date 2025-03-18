@@ -65,7 +65,6 @@ class _RasterizeGaussians(torch.autograd.Function):
         # Invoke _C backward method
         grad_opacity, grad_means, grad_stds, grad_rhos, grad_colors = _C.rasterize_gaussians_backward(*args)
         
-
         grads = (
             grad_opacity,
             grad_means,
@@ -73,6 +72,9 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_rhos,
             grad_colors,
             None,
+            None,
+            None,
+            None
         )
 
         return grads
@@ -81,5 +83,25 @@ class GaussianRasterizer(nn.Module):
     def __init__(self):
         super().__init__()
     
-    def forward(self):
-        return _RasterizeGaussians.apply()
+    def forward(self,
+        opacity,
+        means,
+        stds,
+        rhos,
+        colors,
+        image_height,
+        image_width,
+        scale_factor,
+        raster_ratio
+    ):
+        return _RasterizeGaussians.apply(
+            opacity,
+            means,
+            stds,
+            rhos,
+            colors,
+            image_height,
+            image_width,
+            scale_factor,
+            raster_ratio
+        )

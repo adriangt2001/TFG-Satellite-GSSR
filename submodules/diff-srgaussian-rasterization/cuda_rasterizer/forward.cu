@@ -39,7 +39,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     float rsW = rasterRatio * sW;
     for (int i = 0; i < numGaussians; ++i)
     {
-        if (fabs(pixelX - mean[i].x) < rsW && fabs(pixelY - mean[i].y) < rsH)
+        if (fabs(pixelX - means[i].x) < rsW && fabs(pixelY - means[i].y) < rsH)
         {
             // Eq. 1
             float stdXY = stds[i].x * stds[i].y;
@@ -47,20 +47,20 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
             float stdY2 = stds[i].y * stds[i].y;
             float beta = 1 - rhos[i] * rhos[i];
             float betaRoot = sqrt(beta);
-            float deltaX = (x - mean[i].x);
-            float deltaY = (y - mean[i].y);
+            float deltaX = (x - means[i].x);
+            float deltaY = (y - means[i].y);
             float deltaX2 = deltaX * deltaX;
             float deltaY2 = deltaY * deltaY;
             float deltaXY = deltaX * deltaY;
             float exp1 = -1 / (2 * beta);
-            float exp2 = deltaX2 / stdX2 + deltaY2 / stdY2 - 2 * rho[i] * deltaXY / stdXY;
+            float exp2 = deltaX2 / stdX2 + deltaY2 / stdY2 - 2 * rhos[i] * deltaXY / stdXY;
             float f = 1 / (2 * M_PI * stdXY * betaRoot) * exp(exp1 * exp2);
 
             // Eq. 2
             for (int c = 0; c < CHANNELS; ++c)
             {
                 int idx = (pixelY * sW + pixelX) * CHANNELS + c;
-                outImage[idx] += alfa[i] * f * color[i * CHANNELS + c];
+                outImage[idx] += opacity[i] * f * colors[i * CHANNELS + c];
             }
         }
     }

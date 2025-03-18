@@ -95,7 +95,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
                     atomicAdd(&dL_dstds[i].y, dL_df * df_dstdy);
 
                     // Rho grad
-                    float df_drho = ;
+                    float df_drho = f * ((rho / beta) - (rho * exp2 / (beta * beta)) - (exp1 * 2 * deltaXY / stdXY));
                     atomicAdd(&dL_drhos[i], dL_df * df_drho);
 
                     // Color grad
