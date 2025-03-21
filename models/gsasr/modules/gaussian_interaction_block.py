@@ -150,7 +150,7 @@ class WindowAttention(nn.Module):
         # trunc_normal_(self.relative_position_bias_table, std=.02
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         B, N, C = x.shape 
 
         # Get q, k, v from the input x
@@ -160,7 +160,7 @@ class WindowAttention(nn.Module):
         # Get the positional bias. Could this be moved to the __init__ method?
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
             self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1 # wH*wW x wH*wW x num_heads
-        )
+        ).to(device=x.device)
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous() # num_heads x wH*wW x wH*wW
 
         # Attention(Q, K, V) = SoftMax((Q @ K^T)/d**0.5 + Bias) @ V

@@ -62,14 +62,20 @@ class GSASR(nn.Module):
         opacity, color, std, position, corr = self.gaussian_primary_head(out, ref_pos)
 
         out = self.gaussian_rasterizer(opacity, position, std, corr, color, H, W, scaling_factor, self.raster_ratio)
-        return out
+        return out[0]
 
 if __name__ == '__main__':
+    import os
+    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     from models.backbones import EDSR
-    backbone = EDSR(12, 16, 64)
+    device = 'cuda'
+    batch_size = 1
+    backbone = EDSR(3, 16, 64)
     model = GSASR(backbone, 64, [4, 4], 4, 10, 12)
-    t = torch.randn(8, 12, 64, 64)
-    scaling_factor = torch.randn(8, 1)
+    model.to(device=device)
+    t = torch.randn(batch_size, 3, 64, 64, device=device)
+    scaling_factor = torch.ones(batch_size, 1, device=device) * 10
     out = model(t, scaling_factor)
     print('Success!')
     print(f'Out shape: {out.shape}')
