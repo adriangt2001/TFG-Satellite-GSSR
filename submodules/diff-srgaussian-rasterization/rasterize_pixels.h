@@ -23,7 +23,8 @@ RasterizeGaussiansCUDA(
     const int image_height,
     const int image_width,
     const float scale_factor,
-    const float raster_ratio
+    const float raster_ratio,
+    const bool debug
 );
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
@@ -37,5 +38,6 @@ RasterizeGaussiansBackwardCUDA(
     const int image_height,
     const int image_width,
     const float scale_factor,
-    const float raster_ratio
+    const float raster_ratio,
+    const bool debug
 );

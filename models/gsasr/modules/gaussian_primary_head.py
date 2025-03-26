@@ -62,6 +62,24 @@ class GaussianPrimaryHead(nn.Module):
         std = self.mlp_std(x)
         offset = self.mlp_offset(x)
         corr = self.mlp_corr(x)
+        
+        # Apply safety mechanisms to prevent edge cases
+        std = std + 1e-5  # Add small epsilon to prevent zeros
+        corr = corr * 0.99  # Scale to prevent exact -1 or 1 values
+
+        # Check if tensors have all zeros
+        print(f"opacity all zeros: {torch.all(opacity == 0).item()}")
+        print(f"color all zeros: {torch.all(color == 0).item()}")
+        print(f"std all zeros: {torch.all(std == 0).item()}")
+        print(f"position all zeros: {torch.all(offset == 0).item()}")
+        print(f"corr all zeros: {torch.all(corr == 0).item()}")
+
+        # Optional: Print some statistics
+        print(f"Min/Max values - opacity: {opacity.min().item():.4f}/{opacity.max().item():.4f}")
+        print(f"Min/Max values - color: {color.min().item():.4f}/{color.max().item():.4f}")
+        print(f"Min/Max values - std: {std.min().item():.4f}/{std.max().item():.4f}")
+        print(f"Min/Max values - position: {offset.min().item():.4f}/{offset.max().item():.4f}")
+        print(f"Min/Max values - corr: {corr.min().item():.4f}/{corr.max().item():.4f}")
 
         position = offset + ref_pos
         return opacity, color, std, position, corr

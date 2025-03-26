@@ -17,7 +17,8 @@ class _RasterizeGaussians(torch.autograd.Function):
         image_height,
         image_width,
         scale_factor,
-        raster_ratio
+        raster_ratio,
+        debug
     ):
         args = (
             opacity,
@@ -28,7 +29,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             image_height,
             image_width,
             scale_factor,
-            raster_ratio
+            raster_ratio,
+            debug
         )
 
         out_image = _C.rasterize_gaussians(*args)
@@ -37,6 +39,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         ctx.image_width = image_width
         ctx.scale_factor = scale_factor
         ctx.raster_ratio = raster_ratio
+        ctx.debug = debug
         ctx.save_for_backward(opacity, means, stds, rhos, colors)        
 
         return out_image
@@ -48,6 +51,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         image_width = ctx.image_width
         scale_factor = ctx.scale_factor
         raster_ratio = ctx.raster_ratio
+        debug = ctx.debug
 
         args = (
             opacity,
@@ -59,7 +63,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             image_height,
             image_width,
             scale_factor,
-            raster_ratio
+            raster_ratio,
+            debug
         )
 
         # Invoke _C backward method
@@ -71,6 +76,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_stds,
             grad_rhos,
             grad_colors,
+            None,
             None,
             None,
             None,
@@ -92,7 +98,8 @@ class GaussianRasterizer(nn.Module):
         image_height,
         image_width,
         scale_factor,
-        raster_ratio
+        raster_ratio,
+        debug=False
     ):
         return _RasterizeGaussians.apply(
             opacity,
@@ -103,5 +110,6 @@ class GaussianRasterizer(nn.Module):
             image_height,
             image_width,
             scale_factor,
-            raster_ratio
-        )
+            raster_ratio,
+            debug
+        )[0]

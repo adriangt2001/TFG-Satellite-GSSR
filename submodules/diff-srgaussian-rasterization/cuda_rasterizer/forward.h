@@ -27,7 +27,8 @@ namespace FORWARD
         const float2* __restrict__ stds,
         const float* __restrict__ rhos,
         const float* __restrict__ colors,
-        const int sH, int sW,
+        const int sH,
+        const int sW,
         const float scaleFactor,
         const float rasterRatio,
         float* __restrict__ outImage);

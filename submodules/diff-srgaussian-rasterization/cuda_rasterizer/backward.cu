@@ -39,12 +39,12 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     float x = pixelX / scaleFactor;
     float y = pixelY / scaleFactor;
 
-    if (pixelX >= sW || pixelY >= sH) return;
+    if (pixelX >= sH || pixelY >= sW) return;
 
     float rsH = rasterRatio * sH;
     float rsW = rasterRatio * sW;
     for (int i = 0; i < numGaussians;  ++i) {
-        if (fabs(x - means[i].x) < rsW && fabs(y - means[i].y) < rsH) {
+        if (fabs(x - means[i].x) < rsH && fabs(y - means[i].y) < rsW) {
             // Compute Gaussian function value similar to forward pass
             float stdX = stds[i].x;
             float stdY = stds[i].y;
@@ -67,7 +67,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
 
             // Now compute gradients
             for (int c = 0; c < CHANNELS; ++c) {
-                int idx = (pixelY * sW + pixelX) * CHANNELS + c;
+                int idx = (pixelX * sW + pixelY) * CHANNELS + c;
                 float grad = grad_output[idx];
 
                 if (grad != 0) { // because if 0, it doesn't affect
