@@ -78,11 +78,13 @@ if __name__ == '__main__':
     from models.backbones import EDSR
     device = 'cuda'
     batch_size = 2
-    backbone = EDSR(3, 16, 64)
-    model = GSASR(backbone, 64, [4, 4], 4, 10, 3)
+    num_channels = 3
+    backbone = EDSR(num_channels, 16, 64)
+    model = GSASR(backbone, 64, [4, 4], 4, 10, num_channels)
     model.to(device=device)
-    t = torch.randn(batch_size, 3, 64, 64, device=device)
+    t = torch.randn(batch_size, num_channels, 64, 64, device=device)
     scaling_factor = 2. #torch.ones(batch_size, 1, device=device) * 10
+    model.eval()
     out = model(t, scaling_factor)
     t2 = torch.zeros_like(out)
     print(f'Is everything a zero? {torch.all(t2 == out)}')

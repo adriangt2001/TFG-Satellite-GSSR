@@ -44,12 +44,8 @@ RasterizeGaussiansCUDA(
 
     const int sH = scaleFactor * imageHeight;
     const int sW = scaleFactor * imageWidth;
-    // Create output tensor with same device and dtype as opacity
-    torch::Tensor out_color = torch::zeros({batchSize, sH, sW, NUM_CHANNELS}, opacity.options());
     
-    // Check device of out_color
-    std::cout << "out_color device: " << out_color.device() << std::endl;
-    std::cout << "means device: " << means.device() << std::endl;
+    torch::Tensor out_color = torch::zeros({batchSize, sH, sW, NUM_CHANNELS}, opacity.options());
 
     dim3 grid((sH + BLOCK_X - 1) / BLOCK_X, (sW + BLOCK_Y - 1) / BLOCK_Y);
     dim3 block(BLOCK_X, BLOCK_Y);
@@ -113,11 +109,11 @@ RasterizeGaussiansBackwardCUDA(
             sH, sW,
             scale_factor,
             raster_ratio,
-            dL_dopacity.data_ptr<float>() + b * numGaussians,
-            reinterpret_cast<float2 *>(dL_dmeans.data_ptr<float>() + b * numGaussians * 2),
-            reinterpret_cast<float2 *>(dL_dstds.data_ptr<float>() + b * numGaussians * 2),
-            dL_drhos.data_ptr<float>() + b * numGaussians,
-            dL_dcolors.data_ptr<float>() + b * numGaussians * NUM_CHANNELS
+            dL_dopacity.contiguous().data_ptr<float>() + b * numGaussians,
+            reinterpret_cast<float2 *>(dL_dmeans.contiguous().data_ptr<float>() + b * numGaussians * 2),
+            reinterpret_cast<float2 *>(dL_dstds.contiguous().data_ptr<float>() + b * numGaussians * 2),
+            dL_drhos.contiguous().data_ptr<float>() + b * numGaussians,
+            dL_dcolors.contiguous().data_ptr<float>() + b * numGaussians * NUM_CHANNELS
         ), debug);
     }
     return std::make_tuple(dL_dopacity, dL_dmeans, dL_dstds, dL_drhos, dL_dcolors);

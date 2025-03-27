@@ -67,7 +67,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
 
             // Now compute gradients
             for (int c = 0; c < CHANNELS; ++c) {
-                int idx = (pixelX * sW + pixelY) * CHANNELS + c;
+                int idx = pixelX * sW * CHANNELS + pixelY * CHANNELS + c;
                 float grad = grad_output[idx];
 
                 if (grad != 0) { // because if 0, it doesn't affect
