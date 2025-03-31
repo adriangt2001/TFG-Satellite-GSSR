@@ -12,10 +12,9 @@ from tqdm import tqdm
 from models.gsasr import GSASR
 from models.backbones import EDSR
 from data import DIV2K, ScaleBatchSampler, CustomRandomHorizontalFlip, CustomRandomVerticalFlip, CustomRandomRotation
-from metrics import Metric, PSNR
+from metrics import MetricsList, PSNR, SSIM, CustomDists, CustomLPIPS
 
 # TODO:
-# - Add more metrics, specially for validation (SSIM, consider LPIPS, etc.)
 # - Add a log at the beginning of the training with the model parameters count
 # - Add ability to resume training
 # - Look into gradient clipping, copilot says it helps stability
@@ -51,7 +50,6 @@ def parse_args():
     parser.add_argument('--m', type=int, default=16)
     parser.add_argument('--mlp_ratio', type=float, default=4)
 
-
     args = parser.parse_args()
     return args
 
@@ -60,7 +58,7 @@ def train(
         dataloader: DataLoader,
         criterion: nn.L1Loss,
         optimizer: torch.optim.Adam,
-        metrics: Metric,
+        metrics: MetricsList,
         epoch: int,
         writer: SummaryWriter,
         args,
@@ -102,7 +100,7 @@ def train(
 def valid(
         model: nn.Module,
         dataloader: DataLoader,
-        metrics: Metric,
+        metrics: MetricsList,
         epoch: int,
         writer: SummaryWriter,
         args,
@@ -163,8 +161,8 @@ def main():
     )
 
     # Metrics
-    metrics_train = Metric(PSNR())
-    metrics_valid = Metric(PSNR())
+    metrics_train = MetricsList(PSNR(data_range=1.), SSIM(data_range=1.), CustomDists(), CustomLPIPS())
+    metrics_valid = MetricsList(PSNR(data_range=1.), SSIM(data_range=1.), CustomDists(), CustomLPIPS())
 
     # Hyperparameters
     criterion = nn.L1Loss()
