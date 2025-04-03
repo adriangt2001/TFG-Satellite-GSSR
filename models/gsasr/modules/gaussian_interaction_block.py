@@ -145,9 +145,7 @@ class WindowAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-        # TODO: add this package to the environment and use this initialization from the original Swin Transformer
-        # from timm.models.layers import trunc_normal_
-        # trunc_normal_(self.relative_position_bias_table, std=.02
+        nn.init.trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x: torch.Tensor):

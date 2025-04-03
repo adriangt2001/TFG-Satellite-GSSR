@@ -27,6 +27,8 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         const int sH, int sW,
         const float scaleFactor,
         const float rasterRatio,
+        const float* __restrict__ pixelsX,
+        const float* __restrict__ pixelsY,
         float* __restrict__ dL_dopacity,
         float2* __restrict__ dL_dmeans,
         float2* __restrict__ dL_dstds,
@@ -34,76 +36,93 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         float* __restrict__ dL_dcolors
     )
 {
-    int pixelX = threadIdx.x + blockIdx.x * blockDim.x;
-    int pixelY = threadIdx.y + blockIdx.y * blockDim.y;
-    float x = pixelX / scaleFactor;
-    float y = pixelY / scaleFactor;
+    // Make this method to be per gaussian instead of per pixel
 
-    if (pixelX >= sH || pixelY >= sW) return;
+    // Get all Gaussian Parameters and necessary variables for Eq. 1 and 2
+    int gaussianIdx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (gaussianIdx >= numGaussians) return;
+
+    float alfa = opacity[gaussianIdx];
+    float stdX = stds[gaussianIdx].x;
+    float stdY = stds[gaussianIdx].y;
+    float stdXY = stdX * stdY;
+    float stdX2 = stdX * stdX;
+    float stdY2 = stdY * stdY;
+    float meanX = means[gaussianIdx].x;
+    float meanY = means[gaussianIdx].y;
+    float rho = rhos[gaussianIdx];
+    float beta = 1 - rho * rho;
+    float betaRoot = sqrt(beta);
+    float exp1 = -1 / (2 * beta);
+
+    // Initialize gaussian gradient values
+    float grad_opacity = 0;
+    float grad_meanX = 0;
+    float grad_meanY = 0;
+    float grad_stdX = 0;
+    float grad_stdY = 0;
+    float grad_rho = 0;
 
     float rsH = rasterRatio * sH;
     float rsW = rasterRatio * sW;
-    for (int i = 0; i < numGaussians;  ++i) {
-        if (fabs(x - means[i].x) < rsH && fabs(y - means[i].y) < rsW) {
-            // Compute Gaussian function value similar to forward pass
-            float stdX = stds[i].x;
-            float stdY = stds[i].y;
-            float stdXY = stdX * stdY;
-            float stdX2 = stdX * stdX;
-            float stdY2 = stdY * stdY;
-            float rho = rhos[i];
-            float beta = 1 - rho * rho;
-            float betaRoot = sqrt(beta);
-            float meanX = means[i].x;
-            float meanY = means[i].y;
+
+    // Iterate through all pixels of the image
+
+    for (int i = 0; i < sH; i++) {
+        for (int j = 0; j < sW; j++) {
+            // Get pixel coordinates and check if pixel is within the Gaussian influence
+            float x = pixelsX[i];
+            float y = pixelsY[j];
             float deltaX = (x - meanX);
             float deltaY = (y - meanY);
+
+            if (fabs(deltaX) >= rsH || fabs(deltaY) >= rsW) continue;
+
+            // Finish computing Eq. 1
             float deltaX2 = deltaX * deltaX;
             float deltaY2 = deltaY * deltaY;
             float deltaXY = deltaX * deltaY;
-            float exp1 = -1 / (2 * beta);
             float exp2 = deltaX2 / stdX2 + deltaY2 / stdY2 - 2 * rho * deltaXY / stdXY;
             float f = 1 / (2 * M_PI * stdXY * betaRoot) * exp(exp1 * exp2);
 
             // Now compute gradients
-            for (int c = 0; c < CHANNELS; ++c) {
-                int idx = pixelX * sW * CHANNELS + pixelY * CHANNELS + c;
+            for (int c = 0; c < CHANNELS; c++) {
+                int idx = x * sW * CHANNELS + y * CHANNELS + c;
                 float grad = grad_output[idx];
 
-                if (grad != 0) { // because if 0, it doesn't affect
-                    float color = colors[i * CHANNELS + c];
-                    float alfa = opacity[i];
+                if (grad != 0) {
+                    float color = colors[gaussianIdx * CHANNELS + c];
 
                     // Opacity grad
-                    atomicAdd(&dL_dopacity[i], grad * f * color);
-                    
+                    grad_opacity += grad * f * color;
                     // Mean X grad
                     float dL_df = grad * alfa * color;
                     float df_dmeanx = f * exp1 * ((-2 * deltaX / stdX2) + (2 * rho * deltaY / stdXY));
-                    atomicAdd(&dL_dmeans[i].x, dL_df * df_dmeanx);
-
+                    grad_meanX += dL_df * df_dmeanx;
                     // Mean Y grad
                     float df_dmeany = f * exp1 * ((-2 * deltaY / stdY2) + (2 * rho * deltaX / stdXY));
-                    atomicAdd(&dL_dmeans[i].y, dL_df * df_dmeany);
-
+                    grad_meanY += dL_df * df_dmeany;
                     // Std X grad
                     float df_dstdx = -f / stdX + f * exp1 * (-2 * deltaX2 / stdX2 / stdX + 2 * rho * deltaXY / stdXY / stdX);
-                    atomicAdd(&dL_dstds[i].x, dL_df * df_dstdx);
-                    
+                    grad_stdX += dL_df * df_dstdx;
                     // Std Y grad
                     float df_dstdy = -f / stdY + f * exp1 * (-2 * deltaY2 / stdY2 / stdY + 2 * rho * deltaXY / stdXY / stdY);
-                    atomicAdd(&dL_dstds[i].y, dL_df * df_dstdy);
-
+                    grad_stdY += dL_df * df_dstdy;
                     // Rho grad
                     float df_drho = f * ((rho / beta) - (rho * exp2 / (beta * beta)) - (exp1 * 2 * deltaXY / stdXY));
-                    atomicAdd(&dL_drhos[i], dL_df * df_drho);
-
+                    grad_rho += dL_df * df_drho;
                     // Color grad
-                    atomicAdd(&dL_dcolors[i * CHANNELS + c], grad * opacity[i] * f);
+                    dL_dcolors[gaussianIdx * CHANNELS + c] += grad * alfa * f;
                 }
             }
         }
     }
+    dL_dopacity[gaussianIdx] = grad_opacity;
+    dL_dmeans[gaussianIdx].x = grad_meanX;
+    dL_dmeans[gaussianIdx].y = grad_meanY;
+    dL_dstds[gaussianIdx].x = grad_stdX;
+    dL_dstds[gaussianIdx].y = grad_stdY;
+    dL_drhos[gaussianIdx] = grad_rho;
 }
 
 void BACKWARD::render(
@@ -118,6 +137,8 @@ void BACKWARD::render(
     const int sH, int sW,
     const float scaleFactor,
     const float rasterRatio,
+    const float* __restrict__ pixelsX,
+    const float* __restrict__ pixelsY,
     float* __restrict__ dL_dopacity,
     float2* __restrict__ dL_dmeans,
     float2* __restrict__ dL_dstds,
@@ -136,6 +157,8 @@ void BACKWARD::render(
         sH, sW,
         scaleFactor,
         rasterRatio,
+        pixelsX,
+        pixelsY,
         dL_dopacity,
         dL_dmeans,
         dL_dstds,

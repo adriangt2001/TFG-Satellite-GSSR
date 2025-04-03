@@ -59,6 +59,8 @@ class WindowCrossAttention(nn.Module):
         self.attn_drop = nn.Dropout(0.)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(0.)
+
+        nn.init.trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
     
     def forward(self, e, x):

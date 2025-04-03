@@ -30,6 +30,25 @@ class EDSR(nn.Module):
 
         return x
 
+    def load_state_dict(self, state_dict, strict = True, assign = False):
+        own_state = self.state_dict()
+        for name, param in state_dict.items():
+            if name in own_state:
+                if isinstance(param, nn.Parameter):
+                    param = param.data
+                try:
+                    own_state[name].copy_(param)
+                except Exception:
+                    if name.find('tail') == -1:
+                        raise RuntimeError('While copying the parameter named {}, '
+                                           'whose dimensions in the model are {} and '
+                                           'whose dimensions in the checkpoint are {}.'
+                                           .format(name, own_state[name].size(), param.size()))
+            elif strict:
+                if name.find('tail') == -1:
+                    raise KeyError('unexpected key "{}" in state_dict'
+                                   .format(name))
+
 class ResBlock(nn.Module):
     def __init__(self, n_feats, kernel_size):
         super().__init__()
@@ -48,8 +67,12 @@ class ResBlock(nn.Module):
         return res
 
 if __name__ == '__main__':
+    import os
+    print(os.path.join(os.path.dirname(__file__), 'weights', 'EDSR_x2.pt'))
     model = EDSR(3, 16, 64)
-    t = torch.randn(5, 3, 256, 256)
-    out = model(t)
+    state_dict = torch.load(os.path.join(os.path.dirname(__file__), 'weights', 'edsr_baseline_x2.pt'))
+    model.load_state_dict(state_dict, strict=False)
+    model.requires_grad_(requires_grad=False)
+    # out = model(t)
     print('Success!')
-    print(f'Output shape: {out.shape}')
+    # print(f'Output shape: {out.shape}')

@@ -13,7 +13,6 @@
 #include "config.h"
 
 #include <math.h>
-#include <stdio.h>
 
 template <uint32_t CHANNELS>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)

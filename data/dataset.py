@@ -2,13 +2,15 @@ import os
 import torch
 import torchvision.io as io
 import random
+from tqdm import tqdm
 
 class DIV2K(torch.utils.data.Dataset):
-    def __init__(self, path, phase='train', transforms=None, preload=True):
+    def __init__(self, path, phase='train', transforms=None, preload=True, num_data=1.):
         self.path = path
         self.phase = phase
         self.transforms = transforms
         self.preload = preload
+        self.num_data = num_data
 
         self.load_data()
 
@@ -41,8 +43,11 @@ class DIV2K(torch.utils.data.Dataset):
             data_LR_unknown_X2 = []
             data_LR_unknown_X3 = []
             data_LR_unknown_X4 = []
-
-        for file in os.listdir(HR_path):
+        
+        listdir = os.listdir(HR_path)
+        num_files_used = int(len(listdir) * self.num_data)
+        random.shuffle(listdir)
+        for file in tqdm(listdir[:num_files_used], desc=f"Loading {self.phase} data", unit="file"):
             HR_img_path = os.path.join(HR_path, file)
             LR_img_bicubic_X2_path = os.path.join(LR_bicubic_X2_path, file)
             LR_img_bicubic_X3_path = os.path.join(LR_bicubic_X3_path, file)
@@ -133,7 +138,7 @@ class DIV2K(torch.utils.data.Dataset):
         if self.transforms:
             lr, gt = self.transforms(lr, gt)
         
-        return lr, gt, scale
+        return lr, gt, float(scale)
 
 
 class ScaleBatchSampler(torch.utils.data.Sampler):
@@ -176,7 +181,7 @@ class ScaleBatchSampler(torch.utils.data.Sampler):
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
-    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K_processed', phase='train', preload=False)
+    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K_processed', phase='train', preload=True, num_data=0.2)
     batch_size = 16
     sampler = ScaleBatchSampler(len(dataset), batch_size)
 
@@ -186,10 +191,10 @@ if __name__ == '__main__':
         num_workers=4
     )
 
-    # In your training loop
-    for batch_idx, (lr, gt, scale) in enumerate(dataloader):
-        # Now all images in the batch have the same scale
-        # lr and gt are properly batched tensors
-        # scale is the same for all images in this batch
-        print(f"Batch {batch_idx}, Scale: {scale[0]}")
-        print(f"LR shape: {lr.shape}, GT shape: {gt.shape}")
+    # # In your training loop
+    # for batch_idx, (lr, gt, scale) in enumerate(dataloader):
+    #     # Now all images in the batch have the same scale
+    #     # lr and gt are properly batched tensors
+    #     # scale is the same for all images in this batch
+    #     print(f"Batch {batch_idx}, Scale: {scale[0]}")
+    #     print(f"LR shape: {lr.shape}, GT shape: {gt.shape}")

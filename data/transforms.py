@@ -1,6 +1,15 @@
 import torch
 import random
 
+class CustomCompose(object):
+    def __init__(self, transforms):
+        self.transforms = transforms
+    
+    def __call__(self, img1, img2):
+        for transform in self.transforms:
+            img1, img2 = transform(img1, img2)
+        return img1, img2
+
 class CustomRandomHorizontalFlip(object):
     def __init__(self):
         pass

@@ -172,3 +172,8 @@ cython_debug/
 
 # VS Code Settings
 .vscode/
+
+# Extras
+logs/
+checkpoints/
+weights/
