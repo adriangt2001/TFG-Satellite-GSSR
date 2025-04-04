@@ -27,8 +27,6 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         const int sH, int sW,
         const float scaleFactor,
         const float rasterRatio,
-        const float* __restrict__ pixelsX,
-        const float* __restrict__ pixelsY,
         float* __restrict__ dL_dopacity,
         float2* __restrict__ dL_dmeans,
         float2* __restrict__ dL_dstds,
@@ -67,15 +65,11 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     float rsW = rasterRatio * sW;
 
     // Iterate through all pixels of the image
-
-    for (int i = 0; i < sH; i++) {
-        for (int j = 0; j < sW; j++) {
+    for (int x = 0; x < sH; x++) {
+        for (int y = 0; y < sW; y++) {
             // Get pixel coordinates and check if pixel is within the Gaussian influence
-            float x = pixelsX[i];
-            float y = pixelsY[j];
             float deltaX = (x - meanX);
             float deltaY = (y - meanY);
-
             if (fabs(deltaX) >= rsH || fabs(deltaY) >= rsW) continue;
 
             // Finish computing Eq. 1
@@ -137,8 +131,6 @@ void BACKWARD::render(
     const int sH, int sW,
     const float scaleFactor,
     const float rasterRatio,
-    const float* __restrict__ pixelsX,
-    const float* __restrict__ pixelsY,
     float* __restrict__ dL_dopacity,
     float2* __restrict__ dL_dmeans,
     float2* __restrict__ dL_dstds,
@@ -157,8 +149,6 @@ void BACKWARD::render(
         sH, sW,
         scaleFactor,
         rasterRatio,
-        pixelsX,
-        pixelsY,
         dL_dopacity,
         dL_dmeans,
         dL_dstds,

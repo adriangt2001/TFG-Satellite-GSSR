@@ -7,11 +7,13 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import time
+from DISTS_pytorch import DISTS
+import lpips
 
 from models.gsasr import GSASR
 from models.backbones import EDSR
 from data import DIV2K, ScaleBatchSampler, CustomCompose, CustomRandomHorizontalFlip, CustomRandomVerticalFlip, CustomRandomRotation
-from metrics import MetricsList, PSNR, SSIM, CustomDists, CustomLPIPS
+from metrics import MetricsList, PSNR, CustomSSIM, CustomDists, CustomLPIPS
 
 import warnings
 # Filter out specific warnings
@@ -48,7 +50,7 @@ def parse_args():
 
     # Dataset arguments    
     parser.add_argument('--data_dir', type=str)
-    parser.add_argument('--num_data', type=float, default=0.2)
+    parser.add_argument('--num_data', type=float, default=0.05)
 
     # Backbone arguments
     parser.add_argument('--num_resblocks', type=int, default=16)
@@ -141,31 +143,39 @@ def train(
     epoch_loss = 0.0
     progress_description = f"Epoch [{epoch+1}/{args.epochs}]"
     progress_unit = f"batches"
+    
+    # Calculate global iteration
+    global_iter = epoch * len(dataloader)
+    
     with tqdm(dataloader, desc=progress_description, unit=progress_unit) as pbar:
-        for (lr, gt, scale) in pbar:
+        for i, (lr, gt, scale) in enumerate(pbar):
             optimizer.zero_grad()
 
             lr, gt = lr.to(device=device), gt.to(device=device)
             start_time = time.time()
             output = model(lr, scale[0].item())
             end_time = time.time()
-            print(f"Elapsed time in GSASR: {end_time - start_time}")
+            # print(f"Elapsed time in GSASR: {end_time - start_time}")
             loss = criterion(output, gt)
             start_time = time.time()
             with torch.no_grad():
                 metrics(output, gt)
             end_time = time.time()
-            print(f"Elapsed time in metrics: {end_time - start_time}")
+            # print(f"Elapsed time in metrics: {end_time - start_time}")
 
             start_time = time.time()
             loss.backward()
             end_time = time.time()
-            print(f"Elapsed time in backward step: {end_time - start_time}")
+            # print(f"Elapsed time in backward step: {end_time - start_time}")
             if gradient_clipping:
                 gradient_clipping(model.parameters(), args.gradient_clipping)
             optimizer.step()
 
             epoch_loss += loss.item()
+            
+            # Per-iteration logging
+            current_iter = global_iter + i
+            writer.add_scalar('Loss/train_iter', loss.item(), current_iter)
 
             pbar.set_postfix(loss=loss.item())
     
@@ -262,8 +272,10 @@ def main():
     )
 
     # Metrics
-    metrics_train = MetricsList(PSNR(data_range=1.), SSIM(data_range=1.), CustomDists(), CustomLPIPS())
-    metrics_valid = MetricsList(PSNR(data_range=1.), SSIM(data_range=1.), CustomDists(), CustomLPIPS())
+    my_dists = DISTS().to(device=device)
+    my_lpips = lpips.LPIPS(net='alex').to(device=device)
+    metrics_train = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDists(my_dists), CustomLPIPS(my_lpips))
+    metrics_valid = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDists(my_dists), CustomLPIPS(my_lpips))
 
     # Hyperparameters
     criterion = nn.L1Loss()

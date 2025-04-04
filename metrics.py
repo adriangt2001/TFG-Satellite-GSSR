@@ -1,7 +1,5 @@
 import torch
-from skimage.metrics import structural_similarity as ssim
-from DISTS_pytorch import DISTS
-import lpips
+from pytorch_msssim import SSIM
 
 class Metric:
     def __init__(self, name):
@@ -44,79 +42,47 @@ class PSNR(Metric):
         self.num_calls += 1
         return single_value
 
-class SSIM(Metric):
+class CustomSSIM(Metric):
     def __init__(self, data_range=1.0):
         super().__init__('SSIM')
         self.data_range = data_range
+        self.ssim = SSIM(data_range=data_range, size_average=True, channel=3)
 
     @torch.no_grad()
     def __call__(self, img1: torch.Tensor, img2: torch.Tensor):
-        if img1.is_cuda:
-            img1 = img1.cpu()
-        if img2.is_cuda:
-            img2 = img2.cpu()
-        
-        img1_np = img1.detach().numpy()
-        img2_np = img2.detach().numpy()
+        img1, img2 = super().__call__(img1, img2)
 
-        if len(img1_np.shape) == 4:
-            batch_size = img1_np.shape[0]
-            batch_ssim = 0.0
-            for i in range(batch_size):
-                # Move channels to last dimension for skimage
-                batch_ssim += ssim(img1_np[i], img2_np[i], 
-                                  data_range=self.data_range,
-                                  channel_axis=0)
-            single_value = batch_ssim / batch_size
-        elif len(img1_np.shape) == 3:
-            single_value = ssim(img1_np, img2_np, 
-                               data_range=self.data_range,
-                               channel_axis=0)
-        else:  # height, width (grayscale)
-            single_value = ssim(img1_np, img2_np, 
-                               data_range=self.data_range)
-        
+        single_value = self.ssim(img1, img2).item()
         self.value += single_value
         self.num_calls += 1
         return single_value
 
 class CustomDists(Metric):
-    def __init__(self, device='cpu'):
+    def __init__(self, dists):
         super().__init__('DISTS')
-        self.device = device
-        self.d = DISTS().to(device=device)
+        self.d = dists.eval()
     
     @torch.no_grad()
     def __call__(self, img1, img2):
         img1, img2 = super().__call__(img1, img2)
-        # Move to CPU for processing
-        if img1.is_cuda:
-            img1 = img1.cpu()
-        if img2.is_cuda:
-            img2 = img2.cpu()
-            
-        img1 = img1.to(self.device)
-        img2 = img2.to(self.device)
+
+        if len(img1.shape) == 3:
+            img1 = img1.unsqueeze(0)
+            img2 = img2.unsqueeze(0)
+
         single_value = max(self.d(img1, img2, batch_average=True), 0)
         self.value += single_value
         self.num_calls += 1
         return single_value
 
 class CustomLPIPS(Metric):
-    def __init__(self, net='alex', device='cpu'):
+    def __init__(self, my_lpips):
         super().__init__('LPIPS')
-        self.device = device
-        self.lpips = lpips.LPIPS(net=net).to(device=device)
+        self.lpips = my_lpips.eval()
     
     @torch.no_grad()
     def __call__(self, img1, img2):
         img1, img2 = super().__call__(img1, img2)
-        
-        # Move to CPU for processing
-        if img1.is_cuda:
-            img1 = img1.cpu()
-        if img2.is_cuda:
-            img2 = img2.cpu()
             
         # Convert to range expected by LPIPS
         img1 = img1 * 2 - 1
@@ -125,10 +91,6 @@ class CustomLPIPS(Metric):
         if len(img1.shape) == 3:
             img1 = img1.unsqueeze(0)
             img2 = img2.unsqueeze(0)
-        
-        # Ensure on correct device
-        img1 = img1.to(self.device)
-        img2 = img2.to(self.device)
 
         single_value = self.lpips(img1, img2).mean().item()
         self.value += single_value
@@ -155,10 +117,13 @@ class MetricsList:
         return '\n'.join([str(metric) for metric in self.metrics])
 
 if __name__ == '__main__':
+    import os
+    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     print("Metrics")
-    D = DISTS().to('cpu')
-    metric = MetricsList(PSNR(), SSIM(), CustomDists(device='cpu'), CustomLPIPS(device='cpu'))
-    img1 = torch.rand(5, 3, 256, 256)
-    img2 = torch.rand(5, 3, 256, 256)
-    metric(img1, img1)
+    metric = MetricsList(PSNR(), CustomSSIM(), CustomDists(device='cuda'), CustomLPIPS(device='cuda'))
+    metric2 = MetricsList(PSNR(), CustomSSIM(), CustomDists(device='cuda'), CustomLPIPS(device='cuda'))
+    img1 = torch.rand(5, 3, 256, 256, device='cuda')
+    img2 = torch.rand(5, 3, 256, 256, device='cuda')
+    metric(img1, img2)
     print(metric)

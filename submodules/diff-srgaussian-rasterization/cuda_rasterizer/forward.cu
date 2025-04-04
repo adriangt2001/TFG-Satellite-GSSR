@@ -13,6 +13,7 @@
 #include "config.h"
 
 #include <math.h>
+#include <stdio.h>
 
 template <uint32_t CHANNELS>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
@@ -29,41 +30,48 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         const float rasterRatio,
         float* __restrict__ outImage)
 {
-    int pixelX = threadIdx.x + blockIdx.x * blockDim.x;
-    int pixelY = threadIdx.y + blockIdx.y * blockDim.y;
-    float x = pixelX / scaleFactor;
-    float y = pixelY / scaleFactor;
+    // Make this kernel to be per gaussian instead of per pixel
 
-    if (pixelX >= sH || pixelY >= sW) return;
+    // Get all Gaussian Parameters and necessary variables for Eq. 1 and 2
+    int gaussianIdx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (gaussianIdx >= numGaussians) return;
+
+    float alfa = opacity[gaussianIdx];
+    float stdX = stds[gaussianIdx].x;
+    float stdY = stds[gaussianIdx].y;
+    float stdXY = stdX * stdY;
+    float stdX2 = stdX * stdX;
+    float stdY2 = stdY * stdY;
+    float meanX = means[gaussianIdx].x;
+    float meanY = means[gaussianIdx].y;
+    float rho = rhos[gaussianIdx];
+    float beta = 1 - rho * rho;
+    float betaRoot = sqrt(beta);
+    float exp1 = -1 / (2 * beta);
 
     float rsH = rasterRatio * sH;
     float rsW = rasterRatio * sW;
-    for (int i = 0; i < numGaussians; ++i)
-    {
-        if (fabs(x - means[i].x) < rsH && fabs(y - means[i].y) < rsW)
-        {
-            // Eq. 1
-            float stdXY = stds[i].x * stds[i].y;
-            float stdX2 = stds[i].x * stds[i].x;
-            float stdY2 = stds[i].y * stds[i].y;
-            float beta = 1 - rhos[i] * rhos[i];
-            float betaRoot = sqrt(beta);
-            float deltaX = (x - means[i].x);
-            float deltaY = (y - means[i].y);
+
+    // Iterate through all pixels of the image
+    for (int x = 0; x < sH; x++) {
+        for (int y = 0; y < sW; y++) {
+            // Get pixel coordinates and check if pixel is within the Gaussian influence
+            float deltaX = (x - meanX);
+            float deltaY = (y - meanY);
+            if (fabs(deltaX) >= rsH || fabs(deltaY) >= rsW) continue;
+
+            // Finish computing Eq. 1
             float deltaX2 = deltaX * deltaX;
             float deltaY2 = deltaY * deltaY;
             float deltaXY = deltaX * deltaY;
-            float exp1 = -1 / (2 * beta);
-            float exp2 = deltaX2 / stdX2 + deltaY2 / stdY2 - 2 * rhos[i] * deltaXY / stdXY;
+            float exp2 = deltaX2 / stdX2 + deltaY2 / stdY2 - 2 * rho * deltaXY / stdXY;
             float f = 1 / (2 * M_PI * stdXY * betaRoot) * exp(exp1 * exp2);
 
             // Eq. 2
-            for (int c = 0; c < CHANNELS; ++c)
-            {
-                int idx = pixelX * sW * CHANNELS + pixelY * CHANNELS + c;
-                float alfa = opacity[i];
-                float color = colors[i * CHANNELS + c];
-                outImage[idx] += alfa * color * f;
+            for (int c = 0; c < CHANNELS; c++) {
+                int idx = x * sW * CHANNELS + y * CHANNELS + c;
+                float color = colors[gaussianIdx * CHANNELS + c];
+                atomicAdd(&outImage[idx], alfa * color * f);
             }
         }
     }

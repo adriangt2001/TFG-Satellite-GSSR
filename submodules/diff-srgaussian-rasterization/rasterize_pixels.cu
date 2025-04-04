@@ -47,8 +47,8 @@ RasterizeGaussiansCUDA(
     
     torch::Tensor out_color = torch::zeros({batchSize, sH, sW, NUM_CHANNELS}, opacity.options());
 
-    dim3 grid((sH + BLOCK_X - 1) / BLOCK_X, (sW + BLOCK_Y - 1) / BLOCK_Y);
-    dim3 block(BLOCK_X, BLOCK_Y);
+    dim3 grid((sH + BLOCK_X - 1) / BLOCK_X * (sW + BLOCK_Y - 1) / BLOCK_Y);
+    dim3 block(BLOCK_X * BLOCK_Y);
 
     for (int b = 0; b < batchSize; b++) {
         CHECK_CUDA(FORWARD::render(
@@ -94,10 +94,6 @@ RasterizeGaussiansBackwardCUDA(
     torch::Tensor dL_drhos = torch::zeros_like(rhos);
     torch::Tensor dL_dcolors = torch::zeros_like(colors);
 
-    // Create array of pixel coordinates (i, j format)
-    torch::Tensor pixelsX = torch::linspace(0, sH - 1, sH, opacity.options());
-    torch::Tensor pixelsY = torch::linspace(0, sW - 1, sW, opacity.options());
-
     dim3 grid((sW + BLOCK_X - 1) / BLOCK_X * (sH + BLOCK_Y - 1) / BLOCK_Y);
     dim3 block(BLOCK_X * BLOCK_Y);
     for (int b = 0; b < batchSize; b++) {
@@ -113,8 +109,6 @@ RasterizeGaussiansBackwardCUDA(
             sH, sW,
             scale_factor,
             raster_ratio,
-            pixelsX.contiguous().data_ptr<float>(),
-            pixelsY.contiguous().data_ptr<float>(),
             dL_dopacity.contiguous().data_ptr<float>() + b * numGaussians,
             reinterpret_cast<float2 *>(dL_dmeans.contiguous().data_ptr<float>() + b * numGaussians * 2),
             reinterpret_cast<float2 *>(dL_dstds.contiguous().data_ptr<float>() + b * numGaussians * 2),
