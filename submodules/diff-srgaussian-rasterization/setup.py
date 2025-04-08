@@ -24,8 +24,8 @@ setup(
             "cuda_rasterizer/forward.cu",
             "cuda_rasterizer/backward.cu",
             "rasterize_pixels.cu",
-            "ext.cpp"],
-            extra_compile_args={"nvcc": ["-g", "-G"]})
+            "ext.cpp"],)
+            # extra_compile_args={"nvcc": ["-g", "-G"]})
         ],
     cmdclass={
         'build_ext': BuildExtension

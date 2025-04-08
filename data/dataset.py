@@ -181,8 +181,8 @@ class ScaleBatchSampler(torch.utils.data.Sampler):
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
-    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K_processed', phase='train', preload=True, num_data=0.2)
-    batch_size = 16
+    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K_processed', phase='valid', preload=False, num_data=0.2)
+    batch_size = 4
     sampler = ScaleBatchSampler(len(dataset), batch_size)
 
     dataloader = DataLoader(
@@ -191,10 +191,11 @@ if __name__ == '__main__':
         num_workers=4
     )
 
-    # # In your training loop
-    # for batch_idx, (lr, gt, scale) in enumerate(dataloader):
-    #     # Now all images in the batch have the same scale
-    #     # lr and gt are properly batched tensors
-    #     # scale is the same for all images in this batch
-    #     print(f"Batch {batch_idx}, Scale: {scale[0]}")
-    #     print(f"LR shape: {lr.shape}, GT shape: {gt.shape}")
+    # In your training loop
+    with torch.no_grad():
+        for (lr, gt, scale) in tqdm(dataloader):
+            # Now all images in the batch have the same scale
+            # lr and gt are properly batched tensors
+            # scale is the same for all images in this batch
+            # print(f"LR shape: {lr.shape}, GT shape: {gt.shape}")
+            pass

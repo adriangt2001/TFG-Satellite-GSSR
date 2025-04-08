@@ -77,7 +77,7 @@ class GSASR(nn.Module):
         # print(f"Elapsed time in gaussian primary head: {end_time - start_time}")
 
         start_time = time.time()
-        out: torch.Tensor = self.gaussian_rasterizer(opacity, position, std, corr, color, H, W, scaling_factor, self.raster_ratio, debug=True)
+        out: torch.Tensor = self.gaussian_rasterizer(opacity, position, std, corr, color, H, W, scaling_factor, self.raster_ratio, debug=False)
         end_time = time.time()
         # print(f"Elapsed time in gaussian rasterizer: {end_time - start_time}")
         out = out.permute(0, 3, 1, 2)

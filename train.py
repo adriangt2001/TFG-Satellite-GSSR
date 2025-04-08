@@ -203,7 +203,7 @@ def valid(
     metrics.reset()
     for (lr, gt, scale) in tqdm(dataloader, desc=f"Validation", unit="batches"):
         lr, gt = lr.to(device=device), gt.to(device=device)
-        output = model(lr, scale)
+        output = model(lr, scale[0].item())
         metrics(output, gt)
     
     # Logging into Tensorboard
@@ -259,6 +259,7 @@ def main():
     dataset_train = DIV2K(args.data_dir, phase='train', preload=args.preload, transforms=transforms, num_data=args.num_data)
     dataset_valid = DIV2K(args.data_dir, phase='valid', preload=args.preload, num_data=args.num_data)
     sampler_train = ScaleBatchSampler(len(dataset_train), args.batch_size)
+    sampler_valid = ScaleBatchSampler(len(dataset_valid), args.batch_size, shuffle=False)
     dataloader_train = DataLoader(
         dataset_train,
         batch_sampler=sampler_train,
@@ -266,8 +267,7 @@ def main():
     )
     dataloader_valid = DataLoader(
         dataset_valid,
-        batch_size=args.batch_size,
-        shuffle=False,
+        batch_sampler=sampler_valid,
         num_workers=4
     )
 
@@ -381,8 +381,13 @@ def main():
         # Reset metrics
         metrics_train.reset()
         metrics_valid.reset()
+    
+    # Log the end of training
+    writer.add_text('Training Status', f'Training completed after {e} epochs. Best {metrics_valid.metrics[0].name}: {best_metric:.4f} at epoch {best_epoch}', 0)
+    # Close Tensorboard writer
+    writer.close()
 
 if __name__ == '__main__':
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '4'
     main()
