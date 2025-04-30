@@ -9,14 +9,14 @@ import torch.nn as nn
 class Encoder(nn.Module):
     def __init__(self, backbone, out_features):
         super().__init__()
-        kernel_size = 3
+        # kernel_size = 3
 
         self.backbone = backbone
-        self.feature_adapter = nn.Conv2d(backbone.out_features, out_features, kernel_size, padding=(kernel_size//2))
+        # self.feature_adapter = nn.Conv2d(backbone.out_features, out_features, kernel_size, padding=(kernel_size//2))
 
     def forward(self, x):
         out = self.backbone(x)
-        out = self.feature_adapter(out)
+        # out = self.feature_adapter(out)
         return out
 
 if __name__ == '__main__':
@@ -27,4 +27,3 @@ if __name__ == '__main__':
     out = encoder(t)
     print('Success!')
     print(f'Output shape: {out.shape}')
-

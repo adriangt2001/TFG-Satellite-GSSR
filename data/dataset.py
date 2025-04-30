@@ -5,7 +5,8 @@ import random
 from tqdm import tqdm
 
 class DIV2K(torch.utils.data.Dataset):
-    def __init__(self, path, phase='train', transforms=None, preload=True, num_data=1.):
+    def __init__(self, path, phase='train', transforms=None, preload=True, num_data=10000, seed=42):
+        random.seed(seed)
         self.path = path
         self.phase = phase
         self.transforms = transforms
@@ -44,10 +45,34 @@ class DIV2K(torch.utils.data.Dataset):
             data_LR_unknown_X3 = []
             data_LR_unknown_X4 = []
         
-        listdir = os.listdir(HR_path)
-        num_files_used = int(len(listdir) * self.num_data)
-        random.shuffle(listdir)
-        for file in tqdm(listdir[:num_files_used], desc=f"Loading {self.phase} data", unit="file"):
+        # Get list of all files
+        all_files = os.listdir(HR_path)
+        
+        # Calculate color variation for each image
+        print("Calculating color variation for images...")
+        image_variations = []
+        for file in tqdm(all_files, desc="Analyzing images", unit="file"):
+            HR_img_path = os.path.join(HR_path, file)
+            # Load image and calculate color variation
+            try:
+                img = io.read_image(HR_img_path, io.ImageReadMode.RGB).float() / 255.0
+                # Calculate standard deviation across all pixels and channels
+                variation = float(torch.std(img))
+                image_variations.append((file, variation))
+            except Exception as e:
+                print(f"Error processing {file}: {e}")
+                continue
+        
+        # Sort images by variation (highest first)
+        image_variations.sort(key=lambda x: x[1], reverse=True)
+        
+        # Use only the top percentage according to num_data
+        selected_files = [item[0] for item in image_variations[:self.num_data]]
+        
+        print(f"Selected {self.num_data} images with highest color variation")
+        
+        # Process the selected files
+        for file in tqdm(selected_files, desc=f"Loading {self.phase} data", unit="file", ascii=True):
             HR_img_path = os.path.join(HR_path, file)
             LR_img_bicubic_X2_path = os.path.join(LR_bicubic_X2_path, file)
             LR_img_bicubic_X3_path = os.path.join(LR_bicubic_X3_path, file)
@@ -181,7 +206,7 @@ class ScaleBatchSampler(torch.utils.data.Sampler):
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
-    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K_processed', phase='valid', preload=False, num_data=0.2)
+    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K_processed', phase='train', preload=True, num_data=10000)
     batch_size = 4
     sampler = ScaleBatchSampler(len(dataset), batch_size)
 

@@ -33,24 +33,26 @@ def parse_args():
     parser = argparse.ArgumentParser()
     
     # Training arguments
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=1000) # 500 000 iterations / 800 iterations/epoch = 625 epochs
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--lr', type=float, default=2e-4)
     parser.add_argument('--log_dir', type=str, default='logs')
     parser.add_argument('--log_interval', type=int, default=1)
     parser.add_argument('--checkpoint_dir', type=str, default='checkpoints')
-    parser.add_argument('--save_interval', type=int, default=5)
-    parser.add_argument('--warmup_epochs', type=int, default=3)
-    parser.add_argument('--decay_steps', type=int, nargs='+', default=[40, 60, 80])
+    parser.add_argument('--save_interval', type=int, default=2)
+    parser.add_argument('--warmup_epochs', type=int, default=2000)
+    parser.add_argument('--decay_steps', type=int, nargs='+', default=[250000, 400000, 450000, 475000])
     parser.add_argument('--decay_factor', type=float, default=0.5)
-    parser.add_argument('--patience', type=int, default=10)
+    parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--gradient_clipping', type=float, default=0.0)
     parser.add_argument('--gradient_clipping_type', type=str, default=None)
 
     # Dataset arguments    
     parser.add_argument('--data_dir', type=str)
-    parser.add_argument('--num_data', type=float, default=0.05)
+    parser.add_argument('--num_data', type=float, default=10000)
+    parser.add_argument('--preload', action='store_true')
+    parser.add_argument('--seed', type=int, default=42)
 
     # Backbone arguments
     parser.add_argument('--num_resblocks', type=int, default=16)
@@ -65,9 +67,6 @@ def parse_args():
     parser.add_argument('--raster_ratio', type=float, default=0.1)
     parser.add_argument('--m', type=int, default=16)
     parser.add_argument('--mlp_ratio', type=float, default=4.)
-
-    # Dataset arguments
-    parser.add_argument('--preload', action='store_true')
 
     args = parser.parse_args()
     return args
@@ -130,6 +129,7 @@ def train(
         dataloader: DataLoader,
         criterion: nn.L1Loss,
         optimizer: torch.optim.Adam,
+        lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
         metrics: MetricsList,
         epoch: int,
         writer: SummaryWriter,
@@ -147,34 +147,30 @@ def train(
     # Calculate global iteration
     global_iter = epoch * len(dataloader)
     
-    with tqdm(dataloader, desc=progress_description, unit=progress_unit) as pbar:
+    with tqdm(dataloader, desc=progress_description, unit=progress_unit, ascii=True) as pbar:
         for i, (lr, gt, scale) in enumerate(pbar):
+            current_iter = global_iter + i
             optimizer.zero_grad()
-
             lr, gt = lr.to(device=device), gt.to(device=device)
-            start_time = time.time()
             output = model(lr, scale[0].item())
-            end_time = time.time()
-            # print(f"Elapsed time in GSASR: {end_time - start_time}")
+
             loss = criterion(output, gt)
-            start_time = time.time()
             with torch.no_grad():
                 metrics(output, gt)
-            end_time = time.time()
-            # print(f"Elapsed time in metrics: {end_time - start_time}")
 
-            start_time = time.time()
             loss.backward()
-            end_time = time.time()
-            # print(f"Elapsed time in backward step: {end_time - start_time}")
+            
             if gradient_clipping:
                 gradient_clipping(model.parameters(), args.gradient_clipping)
+            
+            writer.add_scalar('Loss/LR_iter', optimizer.param_groups[0]['lr'], current_iter)
+            
             optimizer.step()
-
+            # Update learning rate
+            lr_scheduler.step()
             epoch_loss += loss.item()
             
             # Per-iteration logging
-            current_iter = global_iter + i
             writer.add_scalar('Loss/train_iter', loss.item(), current_iter)
 
             pbar.set_postfix(loss=loss.item())
@@ -193,6 +189,7 @@ def train(
 def valid(
         model: nn.Module,
         dataloader: DataLoader,
+        criterion: nn.L1Loss,
         metrics: MetricsList,
         epoch: int,
         writer: SummaryWriter,
@@ -201,15 +198,18 @@ def valid(
     ):
     model.eval()
     metrics.reset()
+    valid_loss = 0.0
     for (lr, gt, scale) in tqdm(dataloader, desc=f"Validation", unit="batches"):
         lr, gt = lr.to(device=device), gt.to(device=device)
         output = model(lr, scale[0].item())
+        valid_loss += criterion(output, gt)
         metrics(output, gt)
     
     # Logging into Tensorboard
     for metric in metrics.metrics:
         writer.add_scalar(f'{metric.name}/valid', metric.get_value(), epoch)
-    
+
+    writer.add_scalar('Loss/valid', valid_loss, epoch)
     writer.add_images('Images/valid/input', lr[0:2], epoch)
     writer.add_images('Images/valid/output', output[0:2], epoch)
     writer.add_images('Images/valid/gt', gt[0:2], epoch)
@@ -237,7 +237,7 @@ def main():
     backbone = EDSR(args.num_channels, args.num_resblocks, args.out_features)
     if args.pretrained_backbone:
         backbone.load_state_dict(torch.load(args.pretrained_backbone), strict=False)
-        backbone.requires_grad_(requires_grad=False)
+        # backbone.requires_grad_(requires_grad=False)
     model = GSASR(
         backbone,
         args.out_features,
@@ -256,8 +256,9 @@ def main():
         CustomRandomVerticalFlip(),
         CustomRandomRotation(degrees=180),
     ])
-    dataset_train = DIV2K(args.data_dir, phase='train', preload=args.preload, transforms=transforms, num_data=args.num_data)
-    dataset_valid = DIV2K(args.data_dir, phase='valid', preload=args.preload, num_data=args.num_data)
+    transforms = None
+    dataset_train = DIV2K(args.data_dir, phase='train', transforms=transforms, seed=args.seed)
+    dataset_valid = DIV2K(args.data_dir, phase='valid', seed=args.seed)
     sampler_train = ScaleBatchSampler(len(dataset_train), args.batch_size)
     sampler_valid = ScaleBatchSampler(len(dataset_valid), args.batch_size, shuffle=False)
     dataloader_train = DataLoader(
@@ -287,8 +288,9 @@ def main():
     best_epoch = 0
     
     # Create checkpoint directory if it doesn't exist
-    os.makedirs(args.checkpoint_dir, exist_ok=True)
-    
+    checkpoint_dir = os.path.join(args.checkpoint_dir, f'run{len(os.listdir(args.checkpoint_dir)) + 1}')
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
     # Resume from checkpoint if specified
     if hasattr(args, 'resume') and args.resume:
         if os.path.isfile(args.resume):
@@ -314,11 +316,20 @@ def main():
     
     # If resuming, adjust the LR scheduler state
     if hasattr(args, 'resume') and args.resume and os.path.isfile(args.resume):
-        for _ in range(start_epoch):
+        # Calculate total steps to fast forward scheduler
+        steps_per_epoch = len(dataloader_train)
+        total_steps = start_epoch * steps_per_epoch
+        for _ in range(total_steps):
             lr_scheduler.step()
 
     # Tensorboard logger
-    writer = SummaryWriter(log_dir=args.log_dir)
+    log_dir = os.path.join(args.log_dir, f'run{len(os.listdir(args.log_dir)) + 1}')
+    writer = SummaryWriter(log_dir=log_dir)
+
+    # Log arguments used in this experiment to Tensorboard
+    args_text = "\n".join([f"{arg}: {value}" for arg, value in vars(args).items()])
+    writer.add_text('Arguments', args_text, 0)
+    print("Arguments logged to Tensorboard")
 
     print(f"Training {backbone.__class__.__name__} with {sum(p.numel() for p in backbone.parameters())} parameters")
     print(f"Training {model.__class__.__name__} with {sum(p.numel() for p in model.parameters())} parameters")
@@ -328,6 +339,7 @@ def main():
             dataloader_train,
             criterion,
             optimizer,
+            lr_scheduler,
             metrics_train,
             e,
             writer,
@@ -338,6 +350,7 @@ def main():
         valid(
             model,
             dataloader_valid,
+            criterion,
             metrics_valid,
             e,
             writer,
@@ -347,7 +360,7 @@ def main():
 
         # Save checkpoints
         if e % args.save_interval == 0:
-            checkpoint_path = os.path.join(args.checkpoint_dir, f'checkpoint_{e}.pth')
+            checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint.pth')
             torch.save({
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
@@ -361,7 +374,7 @@ def main():
         if current_metric > best_metric:
             best_metric = current_metric
             best_epoch = e
-            best_model_path = os.path.join(args.checkpoint_dir, 'best_model.pth')
+            best_model_path = os.path.join(checkpoint_dir, 'best_model.pth')
             torch.save({
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
@@ -375,9 +388,6 @@ def main():
             print(f"Early stopping at epoch {e} as no improvement in {metrics_valid.metrics[0].name} for {args.patience} epochs")
             break
 
-        # Update learning rate
-        lr_scheduler.step()
-
         # Reset metrics
         metrics_train.reset()
         metrics_valid.reset()
@@ -389,5 +399,5 @@ def main():
 
 if __name__ == '__main__':
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     main()

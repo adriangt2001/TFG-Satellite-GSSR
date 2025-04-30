@@ -8,8 +8,7 @@ class GaussianPrimaryHead(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.tanh = nn.Tanh()
 
-        mlp_layer1 = int(2*in_features/3)
-        mlp_layer2 = int(in_features/3)
+        mlp_layer = int(in_features/2)
 
         feat_opacity = 1
         feat_color = num_colors
@@ -17,42 +16,32 @@ class GaussianPrimaryHead(nn.Module):
         feat_corr = 1
 
         self.mlp_opacity = nn.Sequential(
-            nn.Linear(in_features, mlp_layer1),
+            nn.Linear(in_features, mlp_layer),
             self.act_fn,
-            nn.Linear(mlp_layer1, mlp_layer2),
-            self.act_fn,
-            nn.Linear(mlp_layer2, feat_opacity),
+            nn.Linear(mlp_layer, feat_opacity),
             self.sigmoid
         )
         self.mlp_color = nn.Sequential(
-            nn.Linear(in_features, mlp_layer1),
+            nn.Linear(in_features, mlp_layer),
             self.act_fn,
-            nn.Linear(mlp_layer1, mlp_layer2),
-            self.act_fn,
-            nn.Linear(mlp_layer2, feat_color),
+            nn.Linear(mlp_layer, feat_color),
             self.sigmoid
         )
         self.mlp_std = nn.Sequential(
-            nn.Linear(in_features, mlp_layer1),
+            nn.Linear(in_features, mlp_layer),
             self.act_fn,
-            nn.Linear(mlp_layer1, mlp_layer2),
-            self.act_fn,
-            nn.Linear(mlp_layer2, feat_offs_std),
+            nn.Linear(mlp_layer, feat_offs_std),
             self.sigmoid
         )
         self.mlp_offset = nn.Sequential(
-            nn.Linear(in_features, mlp_layer1),
+            nn.Linear(in_features, mlp_layer),
             self.act_fn,
-            nn.Linear(mlp_layer1, mlp_layer2),
-            self.act_fn,
-            nn.Linear(mlp_layer2, feat_offs_std),
+            nn.Linear(mlp_layer, feat_offs_std),
         )
         self.mlp_corr = nn.Sequential(
-            nn.Linear(in_features, mlp_layer1),
+            nn.Linear(in_features, mlp_layer),
             self.act_fn,
-            nn.Linear(mlp_layer1, mlp_layer2),
-            self.act_fn,
-            nn.Linear(mlp_layer2, feat_corr),
+            nn.Linear(mlp_layer, feat_corr),
             self.tanh,
         )
 
@@ -65,7 +54,7 @@ class GaussianPrimaryHead(nn.Module):
         
         # Apply safety mechanisms to prevent edge cases
         std = std + 1e-5  # Add small epsilon to prevent zeros
-        corr = corr * 0.99  # Scale to prevent exact -1 or 1 values
+        corr = corr * 0.99999  # Scale to prevent exact -1 or 1 values
 
         position = offset + ref_pos
         return opacity, color, std, position, corr
