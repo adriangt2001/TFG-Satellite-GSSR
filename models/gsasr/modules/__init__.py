@@ -1,4 +1,4 @@
 from .encoder import Encoder
-from .condition_injection_block import ConditionInjectionBlock
-from .gaussian_interaction_block import GaussianInteractionBlock
-from .gaussian_primary_head import GaussianPrimaryHead
+from .condition_injection_block2 import ConditionInjectionBlock
+from .gaussian_interaction_block2 import GaussianInteractionBlock
+from .gaussian_primary_head2 import GaussianPrimaryHead

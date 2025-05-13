@@ -38,7 +38,7 @@ class GaussianPrimaryHead(nn.Module):
             nn.Linear(mlp_layer1, mlp_layer2),
             self.act_fn,
             nn.Linear(mlp_layer2, feat_offs_std),
-            self.sigmoid
+            # self.sigmoid
         )
         self.mlp_offset = nn.Sequential(
             nn.Linear(in_features, mlp_layer1),

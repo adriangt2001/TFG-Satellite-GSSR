@@ -1,1 +1,1 @@
-from .gsasr import GSASR
+from .gsasr2 import GSASR

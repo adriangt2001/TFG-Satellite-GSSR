@@ -47,46 +47,30 @@ class GSASR(nn.Module):
         B, C, H, W = x.shape
         m_log = int(math.log2(self.m))
         H_gauss, W_gauss = m_log * H, m_log * W
-        start_time = time.time()
         out = self.encoder(x).permute(0, 2, 3, 1).contiguous() # (B x C x H x W) -> (B x H x W x C)
-        end_time = time.time()
-        # print(f"Elapsed time in encoder: {end_time - start_time}")
 
         # Get Reference position of each embed
         i = torch.linspace(0, H, steps=H_gauss, device=x.device)
         j = torch.linspace(0, W, steps=W_gauss, device=x.device)
         ref_pos = torch.stack(torch.meshgrid(i, j, indexing='ij'), dim=-1).to(device=x.device).view(-1, 2).unsqueeze(0) # (1 x num_windows x 2)
         
-        start_time = time.time()
         out = self.condition_injection_block(self.embedding, out).view(B, H_gauss*W_gauss, self.out_features)
-        end_time = time.time()
-        # print(f"Elapsed time in condition injection block: {end_time - start_time}")
         scaling_factor_tensor = torch.tensor(scaling_factor, device=x.device, dtype=torch.float32).unsqueeze(0).expand(B, -1)
         mlp_out = self.mlp(scaling_factor_tensor).unsqueeze(1)
 
-        start_time = time.time()
         for block in self.gaussian_interaction_block:
             out = block(out, mlp_out, H_gauss, W_gauss)
-        end_time = time.time()
-        # print(f"Elapsed time in gaussian interaction blocks: {end_time - start_time}")
-        # print(f"Average elapsed time in gaussian interaction blocks: {(end_time - start_time)/len(self.gaussian_interaction_block)}")
         
-        start_time = time.time()
         opacity, color, std, position, corr = self.gaussian_primary_head(out, ref_pos)
-        end_time = time.time()
-        # print(f"Elapsed time in gaussian primary head: {end_time - start_time}")
 
-        start_time = time.time()
         out: torch.Tensor = self.gaussian_rasterizer(opacity, position, std, corr, color, H, W, scaling_factor, self.raster_ratio, debug=False)
-        end_time = time.time()
-        # print(f"Elapsed time in gaussian rasterizer: {end_time - start_time}")
         out = out.permute(0, 3, 1, 2)
         return out
 
 if __name__ == '__main__':
     import os
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     from models.backbones import EDSR
     device = 'cuda'
     batch_size = 1

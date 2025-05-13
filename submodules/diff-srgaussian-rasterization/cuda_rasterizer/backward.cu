@@ -1,14 +1,3 @@
-/*
- * Copyright (C) 2023, Inria
- * GRAPHDECO research group, https://team.inria.fr/graphdeco
- * All rights reserved.
- *
- * This software is free for non-commercial, research and evaluation use
- * under the terms of the LICENSE.md file.
- *
- * For inquiries contact  george.drettakis@inria.fr
- */
-
 #include "backward.h"
 #include "config.h"
 
@@ -34,8 +23,6 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         float* __restrict__ dL_dcolors
     )
 {
-    // Make this method to be per gaussian instead of per pixel
-
     // Get all Gaussian Parameters and necessary variables for Eq. 1 and 2
     int gaussianIdx = blockIdx.x * blockDim.x + threadIdx.x;
     if (gaussianIdx >= numGaussians) return;
@@ -61,16 +48,16 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     float grad_stdY = 0;
     float grad_rho = 0;
 
-    float rsH = rasterRatio * sH;
-    float rsW = rasterRatio * sW;
+    float rH = rasterRatio * sH / scaleFactor;
+    float rW = rasterRatio * sW / scaleFactor;
 
     // Iterate through all pixels of the image
-    for (int x = 0; x < sH; x++) {
-        for (int y = 0; y < sW; y++) {
+    for (int rows = 0; rows < sH; rows++) {
+        for (int cols = 0; cols < sW; cols++) {
             // Get pixel coordinates and check if pixel is within the Gaussian influence
-            float deltaX = (x - meanX);
-            float deltaY = (y - meanY);
-            if (fabs(deltaX) >= rsH || fabs(deltaY) >= rsW) continue;
+            float deltaX = (cols/scaleFactor - meanX);
+            float deltaY = (rows/scaleFactor - meanY);
+            if (fabs(deltaX) >= rW || fabs(deltaY) >= rH) continue;
 
             // Finish computing Eq. 1
             float deltaX2 = deltaX * deltaX;
@@ -81,7 +68,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
 
             // Now compute gradients
             for (int c = 0; c < CHANNELS; c++) {
-                int idx = x * sW * CHANNELS + y * CHANNELS + c;
+                int idx = rows * sW * CHANNELS + cols * CHANNELS + c;
                 float grad = grad_output[idx];
 
                 if (grad != 0) {

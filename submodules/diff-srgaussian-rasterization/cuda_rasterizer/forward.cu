@@ -1,14 +1,3 @@
-/*
- * Copyright (C) 2023, Inria
- * GRAPHDECO research group, https://team.inria.fr/graphdeco
- * All rights reserved.
- *
- * This software is free for non-commercial, research and evaluation use
- * under the terms of the LICENSE.md file.
- *
- * For inquiries contact  george.drettakis@inria.fr
- */
-
 #include "forward.h"
 #include "config.h"
 
@@ -49,16 +38,16 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     float betaRoot = sqrt(beta);
     float exp1 = -1 / (2 * beta);
 
-    float rsH = rasterRatio * sH;
-    float rsW = rasterRatio * sW;
+    float rH = rasterRatio * sH / scaleFactor;
+    float rW = rasterRatio * sW / scaleFactor;
 
     // Iterate through all pixels of the image
-    for (int x = 0; x < sH; x++) {
-        for (int y = 0; y < sW; y++) {
+    for (int rows = 0; rows < sH; rows++) {
+        for (int cols = 0; cols < sW; cols++) {
             // Get pixel coordinates and check if pixel is within the Gaussian influence
-            float deltaX = (x - meanX);
-            float deltaY = (y - meanY);
-            if (fabs(deltaX) >= rsH || fabs(deltaY) >= rsW) continue;
+            float deltaX = (cols/scaleFactor - meanX);
+            float deltaY = (rows/scaleFactor - meanY);
+            if (fabs(deltaX) >= rW || fabs(deltaY) >= rH) continue;
 
             // Finish computing Eq. 1
             float deltaX2 = deltaX * deltaX;
@@ -66,12 +55,13 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
             float deltaXY = deltaX * deltaY;
             float exp2 = deltaX2 / stdX2 + deltaY2 / stdY2 - 2 * rho * deltaXY / stdXY;
             float f = 1 / (2 * M_PI * stdXY * betaRoot) * exp(exp1 * exp2);
+            float fAlfa = f * alfa;
 
             // Eq. 2
             for (int c = 0; c < CHANNELS; c++) {
-                int idx = x * sW * CHANNELS + y * CHANNELS + c;
+                int idx = rows * sW * CHANNELS + cols * CHANNELS + c;
                 float color = colors[gaussianIdx * CHANNELS + c];
-                atomicAdd(&outImage[idx], alfa * color * f);
+                atomicAdd(&outImage[idx], fAlfa * color);
             }
         }
     }
