@@ -1,8 +1,10 @@
 import os
+import yaml
 
 import argparse
 import torch
 import torch.nn as nn
+from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -27,12 +29,11 @@ warnings.filterwarnings("ignore", category=FutureWarning, message="You are using
 import logging
 logging.getLogger("lpips").setLevel(logging.ERROR)
 
-# TODO:
-# - Look into AMP (Automatic Mixed Precision), copilot says it helps speed up training 
-
 def parse_args():
     parser = argparse.ArgumentParser()
-    
+
+    parser.add_argument('--config', type=str, default=None)
+
     # Training arguments
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=1)
@@ -69,8 +70,35 @@ def parse_args():
     parser.add_argument('--m', type=int, default=16)
     parser.add_argument('--mlp_ratio', type=float, default=4.)
 
+    temp_args, _ = parser.parse_known_args()
+
+    yaml_values = parse_yaml(temp_args.config)
+
+    if yaml_values:
+        parser.set_defaults(**yaml_values)
+
     args = parser.parse_args()
     return args
+
+def parse_yaml(config_file):
+    if not config_file:
+        return None
+
+    yaml_values = {}
+    print(f"Loading configuration from: {config_file}")
+    with open(config_file, 'r') as f:
+        try:
+            loaded_yaml = yaml.safe_load(f)
+            if loaded_yaml:
+                for section, params in loaded_yaml.items():
+                    if params:
+                        for key, value in params.items():
+                            yaml_values[key] = value
+        except yaml.YAMLError as exc:
+            print(f"Error parsing YAML file: {exc}")
+        except FileNotFoundError:
+            print(f"Error: Config file not found at {config_file}")
+    return yaml_values
 
 def args_check(args):
     # Training arguments
@@ -131,6 +159,7 @@ def train(
         criterion: nn.L1Loss,
         optimizer: torch.optim.Adam,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+        scaler: GradScaler,
         metrics: MetricsList,
         epoch: int,
         writer: SummaryWriter,
@@ -151,40 +180,44 @@ def train(
     with tqdm(dataloader, desc=progress_description, unit=progress_unit, ascii=True) as pbar:
         for i, (lr, gt, scale) in enumerate(pbar):
             current_iter = global_iter + i
-            optimizer.zero_grad()
+            # Predict
+            optimizer.zero_grad(set_to_none=True)
             lr, gt = lr.to(device=device), gt.to(device=device)
-            output = model(lr, scale[0].item())
 
-            loss = criterion(output, gt)
-            with torch.no_grad():
-                metrics(output, gt)
+            with autocast(device):
+                output = model(lr, scale[0].item())
+                loss = criterion(output, gt)
 
-            loss.backward()
+            # Log results
+            writer.add_scalar('Loss/LR_iter', optimizer.param_groups[0]['lr'], current_iter)
+            writer.add_scalar('Loss/train_iter', loss.item(), current_iter)
+
+            # Update stuff
+            scaler.scale(loss).backward()
             
             if gradient_clipping:
+                scaler.unscale_(optimizer)
                 gradient_clipping(model.parameters(), args.gradient_clipping)
             
-            writer.add_scalar('Loss/LR_iter', optimizer.param_groups[0]['lr'], current_iter)
-            
-            optimizer.step()
-            # Update learning rate
+            scaler.step(optimizer)
+            scaler.update()
             lr_scheduler.step()
             epoch_loss += loss.item()
             
-            # Per-iteration logging
-            writer.add_scalar('Loss/train_iter', loss.item(), current_iter)
-
-            pbar.set_postfix(loss=loss.item())
+            # Metrics
+            with torch.no_grad():
+                metrics(output, gt)
+                pbar.set_postfix(loss=loss.item())
     
-    # Logging into Tensorboard
-    writer.add_scalar('Loss/train', epoch_loss, epoch)
-    for metric in metrics.metrics:
-        writer.add_scalar(f'{metric.name}/train', metric.get_value(), epoch)
-
+    # Log Images
     writer.add_images('Images/train/input', lr[0:2], epoch)
     writer.add_images('Images/train/output', output[0:2], epoch)
     writer.add_images('Images/train/gt', gt[0:2], epoch)
 
+    # Log Scalars
+    writer.add_scalar('Loss/train', epoch_loss/len(dataloader), epoch)
+    for metric in metrics.metrics:
+        writer.add_scalar(f'{metric.name}/train', metric.get_value(), epoch)
 
 @torch.no_grad()
 def valid(
@@ -201,55 +234,37 @@ def valid(
     metrics.reset()
     valid_loss = 0.0
     for (lr, gt, scale) in tqdm(dataloader, desc=f"Validation", unit="batches", ascii=True):
+        # Predict
         lr, gt = lr.to(device=device), gt.to(device=device)
         output = model(lr, scale[0].item())
+
+        # Metrics
         valid_loss += criterion(output, gt)
         metrics(output, gt)
     
-    # Logging into Tensorboard
-    for metric in metrics.metrics:
-        writer.add_scalar(f'{metric.name}/valid', metric.get_value(), epoch)
-    
-    writer.add_scalar('Loss/valid', valid_loss, epoch)
+    # Log Images
     writer.add_images('Images/valid/input', lr[0:2], epoch)
     writer.add_images('Images/valid/output', output[0:2], epoch)
     writer.add_images('Images/valid/gt', gt[0:2], epoch)
 
-def main():
-    args = parse_args()
-    args_check(args)
+    # Log Scalars
+    writer.add_scalar('Loss/valid', valid_loss/len(dataloader), epoch)
+    for metric in metrics.metrics:
+        writer.add_scalar(f'{metric.name}/valid', metric.get_value(), epoch)
 
+def main():
     if (not torch.cuda.is_available()):
         print("CUDA is not available. Can't train")
         return
+    # Parse arguments
+    args = parse_args()
+    args_check(args)
 
+    # Initialize training variables
     device = 'cuda'
-
-    gradient_clipping = None
-    if args.gradient_clipping_type:
-        if args.gradient_clipping_type == 'norm':
-            gradient_clipping = torch.nn.utils.clip_grad_norm_
-        elif args.gradient_clipping_type == 'value':
-            gradient_clipping = torch.nn.utils.clip_grad_value_
-        else:
-            raise ValueError(f"Unknown gradient clipping type: {args.gradient_clipping_type}")
-
-    # Load model
-    backbone = EDSR(args.num_channels, args.num_resblocks, args.backbone_features)
-    if args.pretrained_backbone:
-        backbone.load_state_dict(torch.load(args.pretrained_backbone), strict=False)
-        # backbone.requires_grad_(requires_grad=False)
-    model = GSASR(
-        backbone,
-        args.model_features,
-        args.window_size,
-        args.num_heads,
-        args.n_gaussian_interaction_blocks,
-        args.num_channels,
-        args.raster_ratio,
-        args.m,
-        args.mlp_ratio
-    ).to(device=device)
+    start_epoch = 0
+    best_metric = 0.0
+    best_epoch = 0
 
     # Load data
     transforms = None
@@ -268,17 +283,27 @@ def main():
         num_workers=4
     )
 
-    # Metrics
-    my_dists = DISTS().to(device=device)
-    my_lpips = lpips.LPIPS(net='alex').to(device=device)
-    metrics_train = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDists(my_dists), CustomLPIPS(my_lpips))
-    metrics_valid = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDists(my_dists), CustomLPIPS(my_lpips))
+    # Load model
+    backbone = EDSR(args.num_channels, args.num_resblocks, args.backbone_features)
+    if args.pretrained_backbone:
+        backbone.load_state_dict(torch.load(args.pretrained_backbone), strict=False)
+        # backbone.requires_grad_(requires_grad=False)
+    model = GSASR(
+        backbone,
+        args.model_features,
+        args.window_size,
+        args.num_heads,
+        args.n_gaussian_interaction_blocks,
+        args.num_channels,
+        args.raster_ratio,
+        args.m,
+        args.mlp_ratio
+    ).to(device=device)
 
     # Hyperparameters
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    
-    # Learning rate schedulers
+    scaler = GradScaler()
     lr_warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=args.lr/(args.warmup_epochs + 1), total_iters=args.warmup_epochs)
     lr_decay_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.decay_steps, gamma=args.decay_factor)
     lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
@@ -286,13 +311,22 @@ def main():
         [lr_warmup_scheduler, lr_decay_scheduler],
         [args.warmup_epochs]
     )
+    gradient_clipping = None
+    if args.gradient_clipping_type:
+        if args.gradient_clipping_type == 'norm':
+            gradient_clipping = torch.nn.utils.clip_grad_norm_
+        elif args.gradient_clipping_type == 'value':
+            gradient_clipping = torch.nn.utils.clip_grad_value_
+        else:
+            raise ValueError(f"Unknown gradient clipping type: {args.gradient_clipping_type}")
 
-    # Initialize training variables
-    start_epoch = 0
-    best_metric = 0.0
-    best_epoch = 0
-    
-    # Create checkpoint directory if it doesn't exist
+    # Metrics
+    my_dists = DISTS().to(device=device)
+    my_lpips = lpips.LPIPS(net='alex').to(device=device)
+    metrics_train = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDists(my_dists), CustomLPIPS(my_lpips))
+    metrics_valid = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDists(my_dists), CustomLPIPS(my_lpips))
+
+    # Checkpointing
     checkpoint_dir = os.path.join(args.checkpoint_dir, f'run{len(os.listdir(args.checkpoint_dir)) + 1}')
     os.makedirs(checkpoint_dir, exist_ok=True)
     
@@ -311,11 +345,10 @@ def main():
         else:
             print(f"No checkpoint found at '{args.resume}', starting from scratch")
 
-    # Tensorboard logger
+    # Logging
     log_dir = os.path.join(args.log_dir, f'run{len(os.listdir(args.log_dir)) + 1}')
     writer = SummaryWriter(log_dir=log_dir)
-
-    # Log arguments used in this experiment to Tensorboard
+    
     args_text = "\n".join([f"{arg}: {value}" for arg, value in vars(args).items()])
     writer.add_text('Arguments', args_text, 0)
     print("Arguments logged to Tensorboard")
@@ -329,6 +362,7 @@ def main():
             criterion,
             optimizer,
             lr_scheduler,
+            scaler,
             metrics_train,
             e,
             writer,
@@ -383,9 +417,8 @@ def main():
         metrics_train.reset()
         metrics_valid.reset()
     
-    # Log the end of training
+    # Log end and close
     writer.add_text('Training Status', f'Training completed after {e} epochs. Best {metrics_valid.metrics[0].name}: {best_metric:.4f} at epoch {best_epoch}', 0)
-    # Close Tensorboard writer
     writer.close()
 
 if __name__ == '__main__':

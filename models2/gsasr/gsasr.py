@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import math
 
-from .modules import Encoder, ConditionInjectionBlock, GaussianInteractionBlock, GaussianPrimaryHead
+from . import Encoder, ConditionInjectionBlock, GaussianInteractionBlock, GaussianPrimaryHead
 from diff_srgaussian_rasterization import GaussianRasterizer
 
 class GSASR(nn.Module):

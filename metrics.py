@@ -119,7 +119,7 @@ class MetricsList:
 if __name__ == '__main__':
     import os
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '6'
     print("Metrics")
     metric = MetricsList(PSNR(), CustomSSIM(), CustomDists(device='cuda'), CustomLPIPS(device='cuda'))
     metric2 = MetricsList(PSNR(), CustomSSIM(), CustomDists(device='cuda'), CustomLPIPS(device='cuda'))

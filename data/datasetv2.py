@@ -11,7 +11,6 @@ class DIV2K(torch.utils.data.Dataset):
             random.seed(seed)
         
         self.phase = phase
-        # self.path = path
         self.transforms = transforms
         path = os.path.join(path, f'DIV2K_{phase}_HR')
 
@@ -31,35 +30,6 @@ class DIV2K(torch.utils.data.Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        # What if I just give an image and let the training handle everything else?
-
-        ###### Option 1: Just return the asked image
-        # img = self.images[idx]
-        # if self.transforms:
-        #     img = self.transforms(img)
-        # return img
-    
-        ###### Option 2: Generate the input as well using the idx parameter as scale factor
-        # scale_factor = idx % 4 + 1
-        # img = self.images[random.randint(0, len(self.images))]
-
-        # # Crop random s48xs48 patch of the image
-        # patch_size = scale_factor * 48
-        # col_start = random.randint(0, img.shape[-2] - patch_size)
-        # row_start = random.randint(0, img.shape[-1] - patch_size)
-        # img = img[:, col_start:col_start+patch_size, row_start:row_start+patch_size].unsqueeze(0)
-
-        # if self.transforms:
-        #     img = self.transforms(img)
-        
-        # # Generate downsampled version of the image
-        # lr = torch.nn.functional.interpolate(img, size=(48, 48), mode='bicubic', align_corners=False).squeeze()
-
-        # return lr, img, float(scale_factor)
-
-        ###### Option 3: Get index and scale factor from the idx parameter
-        # The scale factor is codified inside the idx and randomly generated
-        # Extract scale factor, get the expected image index and proceed as option2
         scale_factor = idx % 10 + 1
         img_idx = idx // 10 
         img = self.images[img_idx]
