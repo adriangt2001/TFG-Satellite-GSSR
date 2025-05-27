@@ -1,201 +1,102 @@
 import os
+import random
 import torch
 import torchvision.io as io
-import random
 from tqdm import tqdm
 
+
 class DIV2K(torch.utils.data.Dataset):
-    def __init__(self, path, phase='train', transforms=None, preload=True, num_data=1.):
-        self.path = path
+    def __init__(self, path, phase='train', transforms=None, seed=None):
+        if seed:
+            random.seed(seed)
+        
         self.phase = phase
         self.transforms = transforms
-        self.preload = preload
-        self.num_data = num_data
+        folder_phase = 'train' if phase=='train' else 'valid'
+        path = os.path.join(path, f'DIV2K_{folder_phase}_HR')
 
-        self.load_data()
-
+        self.images = self.load_data(path)
     
-    def load_data(self):
-        HR_path = os.path.join(self.path, f'DIV2K_{self.phase}_HR')
-        LR_bicubic_X2_path = os.path.join(self.path, f'DIV2K_{self.phase}_LR_bicubic', 'X2')
-        LR_bicubic_X3_path = os.path.join(self.path, f'DIV2K_{self.phase}_LR_bicubic', 'X3')
-        LR_bicubic_X4_path = os.path.join(self.path, f'DIV2K_{self.phase}_LR_bicubic', 'X4')
-        LR_unknown_X2_path = os.path.join(self.path, f'DIV2K_{self.phase}_LR_unknown', 'X2')
-        LR_unknown_X3_path = os.path.join(self.path, f'DIV2K_{self.phase}_LR_unknown', 'X3')
-        LR_unknown_X4_path = os.path.join(self.path, f'DIV2K_{self.phase}_LR_unknown', 'X4')
-
-        # Store paths for on-demand loading
-        self.paths = {
-            'HR': [],
-            'LR_bicubic_X2': [],
-            'LR_bicubic_X3': [],
-            'LR_bicubic_X4': [],
-            'LR_unknown_X2': [],
-            'LR_unknown_X3': [],
-            'LR_unknown_X4': []
-        }
-
-        if self.preload:
-            data_HR = []
-            data_LR_bicubic_X2 = []
-            data_LR_bicubic_X3 = []
-            data_LR_bicubic_X4 = []
-            data_LR_unknown_X2 = []
-            data_LR_unknown_X3 = []
-            data_LR_unknown_X4 = []
+    def load_data(self, path):
+        files = os.listdir(path)
+        images = []
+        for file in tqdm(files, desc=f"Loading {self.phase} dataset", unit="file", ascii=True):
+            img_path = os.path.join(path, file)
+            img = io.decode_image(img_path, io.ImageReadMode.RGB).float() / 255.0
+            images.append(img)
         
-        listdir = os.listdir(HR_path)
-        num_files_used = int(len(listdir) * self.num_data)
-        random.shuffle(listdir)
-        for file in tqdm(listdir[:num_files_used], desc=f"Loading {self.phase} data", unit="file"):
-            HR_img_path = os.path.join(HR_path, file)
-            LR_img_bicubic_X2_path = os.path.join(LR_bicubic_X2_path, file)
-            LR_img_bicubic_X3_path = os.path.join(LR_bicubic_X3_path, file)
-            LR_img_bicubic_X4_path = os.path.join(LR_bicubic_X4_path, file)
-            LR_img_unknown_X2_path = os.path.join(LR_unknown_X2_path, file)
-            LR_img_unknown_X3_path = os.path.join(LR_unknown_X3_path, file)
-            LR_img_unknown_X4_path = os.path.join(LR_unknown_X4_path, file)
+        return images
 
-            # Store paths for all images
-            self.paths['HR'].append(HR_img_path)
-            self.paths['LR_bicubic_X2'].append(LR_img_bicubic_X2_path)
-            self.paths['LR_bicubic_X3'].append(LR_img_bicubic_X3_path)
-            self.paths['LR_bicubic_X4'].append(LR_img_bicubic_X4_path)
-            self.paths['LR_unknown_X2'].append(LR_img_unknown_X2_path)
-            self.paths['LR_unknown_X3'].append(LR_img_unknown_X3_path)
-            self.paths['LR_unknown_X4'].append(LR_img_unknown_X4_path)
-
-            if self.preload:
-                img = io.read_image(HR_img_path, io.ImageReadMode.RGB).float() / 255.0
-                data_HR.append(img)
-                img = io.read_image(LR_img_bicubic_X2_path, io.ImageReadMode.RGB).float() / 255.0
-                data_LR_bicubic_X2.append(img)
-                img = io.read_image(LR_img_bicubic_X3_path, io.ImageReadMode.RGB).float() / 255.0
-                data_LR_bicubic_X3.append(img)
-                img = io.read_image(LR_img_bicubic_X4_path, io.ImageReadMode.RGB).float() / 255.0
-                data_LR_bicubic_X4.append(img)
-                img = io.read_image(LR_img_unknown_X2_path, io.ImageReadMode.RGB).float() / 255.0
-                data_LR_unknown_X2.append(img)
-                img = io.read_image(LR_img_unknown_X3_path, io.ImageReadMode.RGB).float() / 255.0
-                data_LR_unknown_X3.append(img)
-                img = io.read_image(LR_img_unknown_X4_path, io.ImageReadMode.RGB).float() / 255.0
-                data_LR_unknown_X4.append(img)
-
-        if self.preload:
-            self.data_HR = torch.stack(data_HR)
-            data_LR_bicubic_X2 = torch.stack(data_LR_bicubic_X2)
-            data_LR_bicubic_X3 = torch.stack(data_LR_bicubic_X3)
-            data_LR_bicubic_X4 = torch.stack(data_LR_bicubic_X4)
-            data_LR_unknown_X2 = torch.stack(data_LR_unknown_X2)
-            data_LR_unknown_X3 = torch.stack(data_LR_unknown_X3)
-            data_LR_unknown_X4 = torch.stack(data_LR_unknown_X4)
-
-            self.data_LR = [
-                data_LR_bicubic_X2,
-                data_LR_bicubic_X3,
-                data_LR_bicubic_X4,
-                data_LR_unknown_X2,
-                data_LR_unknown_X3,
-                data_LR_unknown_X4
-            ]
-    
     def __len__(self):
-        # Total length is 6x the number of images (6 different scales for each image)
-        if self.preload:
-            return len(self.data_HR) * 6
-        else:
-            return len(self.paths['HR']) * 6
-    
+        return len(self.images)
+
     def __getitem__(self, idx):
-        # Parse the index to get the actual index and scale part
-        # Format: idx = real_idx * 6 + scale_part
-        scale_part = idx % 6
-        real_idx = idx // 6
-        
-        scale = scale_part % 3 + 2  # Maps 0,3->2, 1,4->3, 2,5->4
-        
-        if self.preload:
-            gt = self.data_HR[real_idx]
-            lr = self.data_LR[scale_part][real_idx]
-        else:
-            # Load on-demand from file paths
-            if scale_part == 0:
-                lr_path = self.paths['LR_bicubic_X2'][real_idx]
-            elif scale_part == 1:
-                lr_path = self.paths['LR_bicubic_X3'][real_idx]
-            elif scale_part == 2:
-                lr_path = self.paths['LR_bicubic_X4'][real_idx]
-            elif scale_part == 3:
-                lr_path = self.paths['LR_unknown_X2'][real_idx]
-            elif scale_part == 4:
-                lr_path = self.paths['LR_unknown_X3'][real_idx]
-            else:  # scale_part == 5
-                lr_path = self.paths['LR_unknown_X4'][real_idx]
+        if self.phase == 'test':
+            img = self.images[idx]
+
+            if self.transforms:
+                img = self.transforms(img)
             
-            gt = io.read_image(self.paths['HR'][real_idx], io.ImageReadMode.RGB).float() / 255.0
-            lr = io.read_image(lr_path, io.ImageReadMode.RGB).float() / 255.0
+            return img
+        else:
+            scale_factor = idx % 10 + 1
+            img_idx = idx // 10 
+            img = self.images[img_idx]
 
-        if self.transforms:
-            lr, gt = self.transforms(lr, gt)
-        
-        return lr, gt, float(scale)
+            # Crop random s48xs48 patch of the image
+            patch_size = scale_factor * 48
+            col_start = random.randint(0, img.shape[-2] - patch_size)
+            row_start = random.randint(0, img.shape[-1] - patch_size)
+            img = img[:, col_start:col_start+patch_size, row_start:row_start+patch_size].unsqueeze(0)
 
+            if self.transforms:
+                img = self.transforms(img)
+            
+            # Generate downsampled version of the image
+            lr = torch.nn.functional.interpolate(img, size=48, mode='bicubic', antialias=True).squeeze()
+            img = img.squeeze()
+
+            return lr, img, float(scale_factor)
 
 class ScaleBatchSampler(torch.utils.data.Sampler):
-    """
-    Batch sampler that ensures all samples in a batch have the same scale,
-    but randomizes which scale is used between batches.
-    """
-    def __init__(self, dataset_size, batch_size, num_scales=6, shuffle=True):
-        self.base_dataset_size = dataset_size // num_scales
+    def __init__(self, dataset_size, batch_size, num_scales=4, shuffle=True):
+        self.dataset_size = dataset_size
         self.batch_size = batch_size
         self.num_scales = num_scales
         self.shuffle = shuffle
-        
+    
     def __iter__(self):
-        # Create indices for each scale_part
-        scale_batches = []
-        
-        for scale_part in range(self.num_scales):
-            indices = list(range(scale_part, self.base_dataset_size * 6, 6))
-            if self.shuffle:
-                random.shuffle(indices)
-            
+        # Pick one of the 800 images, which will be sampled for this batch
+        # Group images in batches
+        batches = []
+        indices = range(self.dataset_size)
+
+        for idx in indices:
+            # Process index in the form [image index concat scale factor]
+            scale_factor = random.uniform(0, 4)
+
             # Group into batches
-            for i in range(0, len(indices), self.batch_size):
-                batch = indices[i:i + self.batch_size]
-                if batch:  # Only add non-empty batches
-                    scale_batches.append(batch)
-        
-        # Shuffle the order of batches if requested
-        if self.shuffle:
-            random.shuffle(scale_batches)
-            
-        # Yield each batch
-        for batch in scale_batches:
+            batch = [int(idx * 10 + scale_factor) for _ in range(self.batch_size)]
+            batches.append(batch)
+
+        random.shuffle(batches)
+
+        for batch in batches:
             yield batch
     
     def __len__(self):
-        return (self.base_dataset_size * self.num_scales + self.batch_size - 1) // self.batch_size
-
+        return self.dataset_size
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
-    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K_processed', phase='valid', preload=False, num_data=0.2)
+    dataset = DIV2K('/home/msiau/data/tmp/agarciat/DIV2K', phase='valid')
     batch_size = 4
     sampler = ScaleBatchSampler(len(dataset), batch_size)
-
     dataloader = DataLoader(
         dataset,
         batch_sampler=sampler,
         num_workers=4
     )
 
-    # In your training loop
-    with torch.no_grad():
-        for (lr, gt, scale) in tqdm(dataloader):
-            # Now all images in the batch have the same scale
-            # lr and gt are properly batched tensors
-            # scale is the same for all images in this batch
-            # print(f"LR shape: {lr.shape}, GT shape: {gt.shape}")
-            pass
+    for (lr, gt, scale) in tqdm(dataloader):
+        pass

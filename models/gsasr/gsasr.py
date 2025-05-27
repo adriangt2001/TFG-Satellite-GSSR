@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
 import math
-import time
 
-from .modules import Encoder, ConditionInjectionBlock, GaussianInteractionBlock, GaussianPrimaryHead
+from .encoder import Encoder
+from .condition_injection_block import ConditionInjectionBlock
+from .gaussian_interaction_block import GaussianInteractionBlock
+from .gaussian_primary_head import GaussianPrimaryHead
 from diff_srgaussian_rasterization import GaussianRasterizer
 
 class GSASR(nn.Module):
@@ -19,75 +21,76 @@ class GSASR(nn.Module):
             mlp_ratio=4.,
     ):
         super().__init__()
-        self.m = m
-        self.window_size = window_size
         self.out_features = out_features
+        self.window_size = window_size
         self.raster_ratio = raster_ratio
+        self.m = m
 
         # Embedding
-        self.embedding = nn.Parameter(torch.randn(1, m * window_size[0] * window_size[1], out_features)) # Shape must match B x N x C. C is the number of features in the feature map. N is the wH*wW. B is the batch size combined with the number of images.
+        self.embedding = nn.Parameter(torch.randn(1, self.m * self.window_size * self.window_size, self.out_features))
 
-        self.encoder = Encoder(backbone, out_features)
-        self.condition_injection_block = ConditionInjectionBlock(out_features, window_size, num_heads, m)
+        # Encoder
+        self.encoder = Encoder(backbone, self.out_features)
+
+        # Condition Injection Block
+        self.condition_injection_block = ConditionInjectionBlock(self.out_features, self.window_size, num_heads, self.m)
+
+        # Gaussian Interaction Block (Stacks L times)
         mlp_hidden_dim = int(out_features * mlp_ratio)
-        self.mlp = nn.Sequential(
+        self.scale_mlp = nn.Sequential(
             nn.Linear(1, mlp_hidden_dim),
             nn.GELU(),
-            nn.Linear(mlp_hidden_dim, out_features),
+            nn.Linear(mlp_hidden_dim, self.out_features),
+            nn.ReLU(),
         )
-        gaussian_interaction_block = [
-            GaussianInteractionBlock(out_features, window_size, num_heads)
+        self.gaussian_interaction_block = nn.ModuleList([
+            GaussianInteractionBlock(self.out_features, self.window_size, num_heads)
             for _ in range(n_gaussian_interaction_blocks)
-        ]
-        self.gaussian_interaction_block = nn.ModuleList(gaussian_interaction_block)
-        self.gaussian_primary_head = GaussianPrimaryHead(out_features, num_colors)
+        ])
+
+        # Gaussian Primary Head
+        self.gaussian_primary_head = GaussianPrimaryHead(self.out_features, num_colors, self.window_size)
+
+        # Gaussian Rasterizer
         self.gaussian_rasterizer = GaussianRasterizer()
 
-    def forward(self, x: torch.Tensor, scaling_factor):
-        B, C, H, W = x.shape
-        m_log = int(math.log2(self.m))
-        H_gauss, W_gauss = m_log * H, m_log * W
-        out = self.encoder(x).permute(0, 2, 3, 1).contiguous() # (B x C x H x W) -> (B x H x W x C)
-
-        # Get Reference position of each embed
-        i = torch.linspace(0, H, steps=H_gauss, device=x.device)
-        j = torch.linspace(0, W, steps=W_gauss, device=x.device)
-        ref_pos = torch.stack(torch.meshgrid(i, j, indexing='ij'), dim=-1).to(device=x.device).view(-1, 2).unsqueeze(0) # (1 x num_windows x 2)
+    def forward(self, input_image: torch.Tensor, scaling_factor):
+        B, C, H, W = input_image.shape
         
-        out = self.condition_injection_block(self.embedding, out).view(B, H_gauss*W_gauss, self.out_features)
-        scaling_factor_tensor = torch.tensor(scaling_factor, device=x.device, dtype=torch.float32).unsqueeze(0).expand(B, -1)
-        mlp_out = self.mlp(scaling_factor_tensor).unsqueeze(1)
+        # Extract features with the encoder
+        lr_features = self.encoder(input_image).permute(0, 2, 3, 1).contiguous()
+        
+        # Prepare Gaussian Embeddings. Duplicate them and assign to each copy a reference position
+        # Reference positions
+        m_root = int(math.sqrt(self.m))
+        rows = torch.linspace(0, H, steps=m_root * H, device=input_image.device)
+        cols = torch.linspace(0, W, steps=m_root * W, device=input_image.device)
+        ref_pos = torch.stack(torch.meshgrid(cols, rows, indexing='xy'), dim=-1).view(-1, 2).unsqueeze(0)
+
+        # Duplicate Gaussians and reference position
+        gauss_embeds = self.embedding.repeat(B, int(H//self.window_size * W//self.window_size), 1)
+        ref_pos = ref_pos.repeat(B, 1, 1)
+
+        # Condition Injection Block
+        gauss_embeds = self.condition_injection_block(gauss_embeds, lr_features)
+
+        # Gaussian Interaction Block
+        scale_features = self.scale_mlp(
+                torch.tensor(scaling_factor, device=rows.device, dtype=torch.float32).unsqueeze(0).repeat(B, 1)
+            ).unsqueeze(1)
 
         for block in self.gaussian_interaction_block:
-            out = block(out, mlp_out, H_gauss, W_gauss)
+            gauss_embeds = block(gauss_embeds, scale_features, m_root * H, m_root * W)
         
-        opacity, color, std, position, corr = self.gaussian_primary_head(out, ref_pos)
+        # Gaussian Primary Head
+        opacity, rho, mean, std, color = self.gaussian_primary_head(gauss_embeds, ref_pos)
 
-        out: torch.Tensor = self.gaussian_rasterizer(opacity, position, std, corr, color, H, W, scaling_factor, self.raster_ratio, debug=False)
-        out = out.permute(0, 3, 1, 2)
-        return out
-
-if __name__ == '__main__':
-    import os
-    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    from models.backbones import EDSR
-    device = 'cuda'
-    batch_size = 1
-    num_channels = 3
-    backbone = EDSR(num_channels, 16, 64)
-    model = GSASR(backbone, 64, [12, 12], 4, 6, num_channels)
-    model.to(device=device)
-    print(f"Number of parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-    from data import DIV2K
-    dataset = DIV2K("/home/msiau/data/tmp/agarciat/DIV2K_processed", phase="valid", preload=False)
-    lr, gt, scale = dataset[0]
-    print(type(scale))
-    with torch.no_grad():
-        model.eval()
-        out = model(lr.to(device='cuda').unsqueeze(0), scale)
-        t2 = torch.zeros_like(out)
-    print(f'Is everything a zero? {torch.all(t2 == out)}')
-    print(f"Min/Max values - output: {out.min().item():.4f}/{out.max().item():.4f}")
-    print('Success!')
-    print(f'Out shape: {out.shape}')
+        # Gaussian Rasterizer
+        opacity_fp32 = opacity.float()
+        rhos_fp32 = rho.float()
+        means_fp32 = mean.float()
+        stds_fp32 = std.float()
+        colors_fp32 = color.float()
+        output_image = self.gaussian_rasterizer(opacity_fp32, means_fp32, stds_fp32, rhos_fp32, colors_fp32, H, W, scaling_factor, self.raster_ratio, debug=False)
+        output_image = output_image.permute(0, 3, 1, 2)
+        return output_image

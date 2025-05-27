@@ -70,7 +70,7 @@ class CustomDists(Metric):
             img1 = img1.unsqueeze(0)
             img2 = img2.unsqueeze(0)
 
-        single_value = max(self.d(img1, img2, batch_average=True), 0)
+        single_value = max(self.d(img1, img2, batch_average=True).item(), 0)
         self.value += single_value
         self.num_calls += 1
         return single_value
@@ -107,6 +107,9 @@ class MetricsList:
     def reset(self):
         for metric in self.metrics:
             metric.reset()
+
+    def __getitem__(self, idx):
+        return self.metrics[idx]
 
     def __call__(self, img1, img2):
         for metric in self.metrics:
