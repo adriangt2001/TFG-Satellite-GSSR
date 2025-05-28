@@ -15,7 +15,7 @@ from DISTS_pytorch import DISTS
 from lpips import LPIPS
 
 # Custom imports
-from data import DIV2K, ScaleBatchSampler
+from data import DIV2K, Sentinel2Processed, ScaleBatchSampler
 from models import EDSR, GSASR
 from metrics import MetricsList, PSNR, CustomSSIM, CustomLPIPS, CustomDists
 
@@ -124,6 +124,17 @@ def parse_args():
 
     return args
 
+def generate_dataset(args):
+    if os.path.basename(args.dataset) == 'DIV2K':
+        train_dataset = DIV2K(args.dataset, phase='train', seed=args.seed)
+        val_dataset = DIV2K(args.dataset, phase='valid', seed=args.seed)
+        return train_dataset, val_dataset
+    elif os.path.basename(args.dataset) == 'Sentinel-2':
+        mode = 'rgb' if args.channels == 3 else 'ms'
+        train_dataset = Sentinel2Processed(args.dataset, mode=mode, phase='train', seed=args.seed)
+        val_dataset = Sentinel2Processed(args.dataset, mode=mode, phase='valid', seed=args.seed)
+        return train_dataset, val_dataset
+
 def train(epoch, dataloader, model, criterion, optimizer, lr_scheduler, scaler, gclipping, metrics, writer, args, device):
     mean_loss = 0.
     global_iter = epoch * len(dataloader)
@@ -205,11 +216,11 @@ def main():
     ])
 
     # Dataset
-    train_dataset = DIV2K(args.dataset, phase='train', transforms=transforms, seed=args.seed)
+    train_dataset, valid_dataset = generate_dataset(args)
+    
     train_sampler = ScaleBatchSampler(len(train_dataset), args.batch_size, num_scales=4, shuffle=True)
     train_dataloader = DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=4)
 
-    valid_dataset = DIV2K(args.dataset, phase='valid', seed=args.seed)
     valid_sampler = ScaleBatchSampler(len(valid_dataset), args.batch_size, num_scales=4, shuffle=False)
     valid_dataloader = DataLoader(valid_dataset, batch_sampler=valid_sampler, num_workers=4)
 

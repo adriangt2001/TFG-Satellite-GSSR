@@ -33,36 +33,38 @@ RasterizeGaussiansCUDA(
     const torch::Tensor &stds,
     const torch::Tensor &rhos,
     const torch::Tensor &colors,
-    const int imageHeight,
-    const int imageWidth,
-    const float scaleFactor,
-    const float rasterRatio,
+    const int image_height,
+    const int image_width,
+    const float scale_factor,
+    const float raster_ratio,
+    const int num_channels,
     const bool debug)
 {
-    int batchSize = means.size(0);
-    int numGaussians = means.size(1);
+    int batch_size = means.size(0);
+    int num_gaussians = means.size(1);
 
-    const int sH = scaleFactor * imageHeight;
-    const int sW = scaleFactor * imageWidth;
+    const int sH = scale_factor * image_height;
+    const int sW = scale_factor * image_width;
     
-    torch::Tensor out_color = torch::zeros({batchSize, sH, sW, NUM_CHANNELS}, opacity.options());
+    torch::Tensor out_color = torch::zeros({batch_size, sH, sW, num_channels}, opacity.options());
 
     dim3 grid((sH + BLOCK_X - 1) / BLOCK_X * (sW + BLOCK_Y - 1) / BLOCK_Y);
     dim3 block(BLOCK_X * BLOCK_Y);
 
-    for (int b = 0; b < batchSize; b++) {
+    for (int b = 0; b < batch_size; b++) {
         CHECK_CUDA(FORWARD::render(
             grid, block,
-            numGaussians,
-            opacity.contiguous().data_ptr<float>() + b * numGaussians,
-            reinterpret_cast<float2 *>(means.contiguous().data_ptr<float>() + b * numGaussians * 2),
-            reinterpret_cast<float2 *>(stds.contiguous().data_ptr<float>() + b * numGaussians * 2),
-            rhos.contiguous().data_ptr<float>() + b * numGaussians,
-            colors.contiguous().data_ptr<float>() + b * numGaussians * NUM_CHANNELS,
+            num_gaussians,
+            opacity.contiguous().data_ptr<float>() + b * num_gaussians,
+            reinterpret_cast<float2 *>(means.contiguous().data_ptr<float>() + b * num_gaussians * 2),
+            reinterpret_cast<float2 *>(stds.contiguous().data_ptr<float>() + b * num_gaussians * 2),
+            rhos.contiguous().data_ptr<float>() + b * num_gaussians,
+            colors.contiguous().data_ptr<float>() + b * num_gaussians * num_channels,
             sH, sW,
-            scaleFactor,
-            rasterRatio,
-            out_color.contiguous().data_ptr<float>() + b * sH * sW * NUM_CHANNELS), debug);
+            scale_factor,
+            raster_ratio,
+            num_channels,
+            out_color.contiguous().data_ptr<float>() + b * sH * sW * num_channels), debug);
     }
     return std::make_tuple(out_color);
 }
@@ -79,11 +81,12 @@ RasterizeGaussiansBackwardCUDA(
     const int image_width,
     const float scale_factor,
     const float raster_ratio,
+    const int num_channels,
     const bool debug
 )
 {
-    int batchSize = means.size(0);
-    int numGaussians = means.size(1);
+    int batch_size = means.size(0);
+    int num_gaussians = means.size(1);
 
     const int sH = scale_factor * image_height;
     const int sW = scale_factor * image_width;
@@ -96,24 +99,25 @@ RasterizeGaussiansBackwardCUDA(
 
     dim3 grid((sW + BLOCK_X - 1) / BLOCK_X * (sH + BLOCK_Y - 1) / BLOCK_Y);
     dim3 block(BLOCK_X * BLOCK_Y);
-    for (int b = 0; b < batchSize; b++) {
+    for (int b = 0; b < batch_size; b++) {
         CHECK_CUDA(BACKWARD::render(
             grid, block,
-            numGaussians,
-            opacity.contiguous().data_ptr<float>() + b * numGaussians,
-            reinterpret_cast<float2 *>(means.contiguous().data_ptr<float>() + b * numGaussians * 2),
-            reinterpret_cast<float2 *>(stds.contiguous().data_ptr<float>() + b * numGaussians * 2),
-            rhos.contiguous().data_ptr<float>() + b * numGaussians,
-            colors.contiguous().data_ptr<float>() + b * numGaussians * NUM_CHANNELS,
-            grad_output.contiguous().data_ptr<float>() + b * sH * sW * NUM_CHANNELS,
+            num_gaussians,
+            opacity.contiguous().data_ptr<float>() + b * num_gaussians,
+            reinterpret_cast<float2 *>(means.contiguous().data_ptr<float>() + b * num_gaussians * 2),
+            reinterpret_cast<float2 *>(stds.contiguous().data_ptr<float>() + b * num_gaussians * 2),
+            rhos.contiguous().data_ptr<float>() + b * num_gaussians,
+            colors.contiguous().data_ptr<float>() + b * num_gaussians * num_channels,
+            grad_output.contiguous().data_ptr<float>() + b * sH * sW * num_channels,
             sH, sW,
             scale_factor,
             raster_ratio,
-            dL_dopacity.contiguous().data_ptr<float>() + b * numGaussians,
-            reinterpret_cast<float2 *>(dL_dmeans.contiguous().data_ptr<float>() + b * numGaussians * 2),
-            reinterpret_cast<float2 *>(dL_dstds.contiguous().data_ptr<float>() + b * numGaussians * 2),
-            dL_drhos.contiguous().data_ptr<float>() + b * numGaussians,
-            dL_dcolors.contiguous().data_ptr<float>() + b * numGaussians * NUM_CHANNELS
+            num_channels,
+            dL_dopacity.contiguous().data_ptr<float>() + b * num_gaussians,
+            reinterpret_cast<float2 *>(dL_dmeans.contiguous().data_ptr<float>() + b * num_gaussians * 2),
+            reinterpret_cast<float2 *>(dL_dstds.contiguous().data_ptr<float>() + b * num_gaussians * 2),
+            dL_drhos.contiguous().data_ptr<float>() + b * num_gaussians,
+            dL_dcolors.contiguous().data_ptr<float>() + b * num_gaussians * num_channels
         ), debug);
     }
     return std::make_tuple(dL_dopacity, dL_dmeans, dL_dstds, dL_drhos, dL_dcolors);

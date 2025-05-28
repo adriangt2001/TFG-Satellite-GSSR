@@ -3,7 +3,6 @@
 
 #include <math.h>
 
-template <uint32_t CHANNELS>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     renderCUDA(
         const int numGaussians,
@@ -16,6 +15,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         const int sH, int sW,
         const float scaleFactor,
         const float rasterRatio,
+        const int numChannels,
         float* __restrict__ dL_dopacity,
         float2* __restrict__ dL_dmeans,
         float2* __restrict__ dL_dstds,
@@ -67,12 +67,12 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
             float f = 1 / (2 * M_PI * stdXY * betaRoot) * exp(exp1 * exp2);
 
             // Now compute gradients
-            for (int c = 0; c < CHANNELS; c++) {
-                int idx = rows * sW * CHANNELS + cols * CHANNELS + c;
+            for (int c = 0; c < numChannels; c++) {
+                int idx = rows * sW * numChannels + cols * numChannels + c;
                 float grad = grad_output[idx];
 
                 if (grad != 0) {
-                    float color = colors[gaussianIdx * CHANNELS + c];
+                    float color = colors[gaussianIdx * numChannels + c];
 
                     // Opacity grad
                     grad_opacity += grad * f * color;
@@ -93,7 +93,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
                     float df_drho = f * ((rho / beta) - (rho * exp2 / (beta * beta)) - (exp1 * 2 * deltaXY / stdXY));
                     grad_rho += dL_df * df_drho;
                     // Color grad
-                    dL_dcolors[gaussianIdx * CHANNELS + c] += grad * alfa * f;
+                    dL_dcolors[gaussianIdx * numChannels + c] += grad * alfa * f;
                 }
             }
         }
@@ -118,6 +118,7 @@ void BACKWARD::render(
     const int sH, int sW,
     const float scaleFactor,
     const float rasterRatio,
+    const int numChannels,
     float* __restrict__ dL_dopacity,
     float2* __restrict__ dL_dmeans,
     float2* __restrict__ dL_dstds,
@@ -125,7 +126,7 @@ void BACKWARD::render(
     float* __restrict__ dL_dcolors
 )
 {
-    renderCUDA<NUM_CHANNELS><<<grid, block>>>(
+    renderCUDA<<<grid, block>>>(
         numGaussians,
         opacity,
         means,
@@ -136,6 +137,7 @@ void BACKWARD::render(
         sH, sW,
         scaleFactor,
         rasterRatio,
+        numChannels,
         dL_dopacity,
         dL_dmeans,
         dL_dstds,

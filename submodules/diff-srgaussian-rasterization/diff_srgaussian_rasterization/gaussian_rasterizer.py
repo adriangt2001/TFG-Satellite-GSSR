@@ -18,6 +18,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         image_width,
         scale_factor,
         raster_ratio,
+        num_channels,
         debug
     ):
         args = (
@@ -30,6 +31,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             image_width,
             scale_factor,
             raster_ratio,
+            num_channels,
             debug
         )
 
@@ -39,6 +41,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         ctx.image_width = image_width
         ctx.scale_factor = scale_factor
         ctx.raster_ratio = raster_ratio
+        ctx.num_channels = num_channels
         ctx.debug = debug
         ctx.save_for_backward(opacity, means, stds, rhos, colors)        
 
@@ -51,6 +54,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         image_width = ctx.image_width
         scale_factor = ctx.scale_factor
         raster_ratio = ctx.raster_ratio
+        num_channels = ctx.num_channels
         debug = ctx.debug
 
         args = (
@@ -64,6 +68,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             image_width,
             scale_factor,
             raster_ratio,
+            num_channels,
             debug
         )
 
@@ -80,14 +85,16 @@ class _RasterizeGaussians(torch.autograd.Function):
             None,
             None,
             None,
+            None,
             None
         )
 
         return grads
 
 class GaussianRasterizer(nn.Module):
-    def __init__(self):
+    def __init__(self, num_channels):
         super().__init__()
+        self.num_channels = num_channels
     
     def forward(self,
         opacity,
@@ -111,5 +118,6 @@ class GaussianRasterizer(nn.Module):
             image_width,
             scale_factor,
             raster_ratio,
+            self.num_channels,
             debug
         )[0]

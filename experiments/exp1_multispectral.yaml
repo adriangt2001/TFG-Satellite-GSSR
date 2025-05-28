@@ -1,0 +1,32 @@
+dataset:
+  dataset: /home/msiau/data/tmp/agarciat/Sentinel-2
+  seed: 42
+
+backbone:
+  resblocks: 16
+  backbone_features: 64
+
+model:
+  channels: 12
+  model_features: 180
+  window_size: 12
+  num_heads: 4
+  gaussian_interaction_blocks: 6
+  raster_ratio: 0.1
+  gaussian_density: 16
+  mlp_ratio: 4.
+
+training:
+  epochs: 1000
+  batch_size: 2
+  pretrained_backbone: /home/msiau/workspace/TFG-Satellite-GSSR/weights/edsr_baseline_x2.pt
+  lr: 2e-4
+  warmup_iterations: 2000
+  decay_steps: [250000, 400000, 450000, 475000]
+  decay_factor: 0.5
+  gclip_type: norm
+  gclip_value: 1.0
+  patience: 50
+  save_interval: 5
+  checkpoint: checkpoints/ms
+  logs: logs/ms

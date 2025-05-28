@@ -31,6 +31,7 @@ namespace FORWARD
         const int sW,
         const float scaleFactor,
         const float rasterRatio,
+        const int numChannels,
         float* __restrict__ outImage);
 }
 
