@@ -25,34 +25,34 @@ class Metric:
         return f"{self.name}: {self.get_value():.2f}"
 
 class PSNR(Metric):
-    def __init__(self, data_range=1.0):
+    def __init__(self):
         super().__init__('PSNR')
-        self.data_range = data_range
 
     @torch.no_grad()
     def __call__(self, img1, img2):
         img1, img2 = super().__call__(img1, img2)
+        data_range = img2.max() - img2.min()
         mse = torch.mean((img1 - img2) ** 2)
         if mse == 0:
             single_value = 1000
             self.value += single_value
         else:
-            single_value = 10 * torch.log10((torch.tensor(self.data_range ** 2)) / mse).item()
+            single_value = 10 * torch.log10((torch.tensor(data_range ** 2)) / mse).item()
             self.value += single_value
         self.num_calls += 1
         return single_value
 
 class CustomSSIM(Metric):
-    def __init__(self, data_range=1.0):
+    def __init__(self, channels):
         super().__init__('SSIM')
-        self.data_range = data_range
-        self.ssim = SSIM(data_range=data_range, size_average=True, channel=3)
+        self.channels = channels
 
     @torch.no_grad()
     def __call__(self, img1: torch.Tensor, img2: torch.Tensor):
         img1, img2 = super().__call__(img1, img2)
 
-        single_value = self.ssim(img1, img2).item()
+        data_range = img2.max() - img2.min()
+        single_value = SSIM(data_range=data_range, size_average=True, channel=self.channels)(img1, img2).item()
         self.value += single_value
         self.num_calls += 1
         return single_value
@@ -70,7 +70,8 @@ class CustomDists(Metric):
             img1 = img1.unsqueeze(0)
             img2 = img2.unsqueeze(0)
 
-        single_value = max(self.d(img1, img2, batch_average=True).item(), 0)
+        single_value = 0
+        single_value = max(self.d(img1[:, :3], img2[:, :3], batch_average=True).item(), 0)
         self.value += single_value
         self.num_calls += 1
         return single_value
@@ -83,7 +84,7 @@ class CustomLPIPS(Metric):
     @torch.no_grad()
     def __call__(self, img1, img2):
         img1, img2 = super().__call__(img1, img2)
-            
+
         # Convert to range expected by LPIPS
         img1 = img1 * 2 - 1
         img2 = img2 * 2 - 1
@@ -92,7 +93,7 @@ class CustomLPIPS(Metric):
             img1 = img1.unsqueeze(0)
             img2 = img2.unsqueeze(0)
 
-        single_value = self.lpips(img1, img2).mean().item()
+        single_value = self.lpips(img1[:, :3], img2[:, :3]).mean().item()
         self.value += single_value
         self.num_calls += 1
         return single_value

@@ -3,6 +3,7 @@ import os
 import torch.utils.tensorboard
 import yaml
 import argparse
+import random
 from tqdm import tqdm
 
 import torchvision
@@ -85,6 +86,7 @@ def parse_args():
     parser.add_argument('--backbone_features', type=int, default=64, help="Embedding size of the backbone.")
 
     # Model
+    parser.add_argument('--name', type=str, default='Model', help="Name of the current model")
     parser.add_argument('--channels', type=int, default=3, help="Number of channels of input images.")
     parser.add_argument('--model_features', type=int, default=180, help="Embedding size of the model.")
     parser.add_argument('--window_size', type=int, default=12, help="Window size.")
@@ -104,6 +106,7 @@ def parse_args():
     parser.add_argument('--decay_factor', type=float, default=0.5, help="Decay factor of the learning rate.")
     parser.add_argument('--gclip_type', type=str, default=None, help="Gradient clipping to use.")
     parser.add_argument('--gclip_value', type=float, default=0., help="Gradient clipping value.")
+    parser.add_argument('--valid_interval', type=int, default=1, help="Validation interval.")
     parser.add_argument('--patience', type=int, default=10, help="Early stopping patience.")
     parser.add_argument('--checkpoint', type=str, default='checkpoints', help="Root directory to store checkpoints.")
     parser.add_argument('--save_interval', type=int, default=1, help="Checkpointing interval.")
@@ -171,9 +174,11 @@ def train(epoch, dataloader, model, criterion, optimizer, lr_scheduler, scaler, 
                 writer.add_scalar('Loss/iter', loss.item(), current_iter)
                 pbar.set_postfix(loss=loss.item())
     
-    writer.add_images('Images/train/input', torchvision.utils.make_grid(lr[:min(args.batch_size, 4)], nrow=2).unsqueeze(0), epoch)
-    writer.add_images('Images/train/groundtruth', torchvision.utils.make_grid(gt[:min(args.batch_size, 4)], nrow=2).unsqueeze(0), epoch)
-    writer.add_images('Images/train/output', torchvision.utils.make_grid(output[:min(args.batch_size, 4)], nrow=2).unsqueeze(0), epoch)
+    channel_idx = random.randint(0, args.channels - 4) if args.channels > 3 else 0
+
+    writer.add_images('Images/valid/input', torchvision.utils.make_grid(lr[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
+    writer.add_images('Images/valid/groundtruth', torchvision.utils.make_grid(gt[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
+    writer.add_images('Images/valid/output', torchvision.utils.make_grid(output[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
     writer.add_scalar('Loss/train', mean_loss/len(dataloader), epoch)
     for metric in metrics.metrics:
         writer.add_scalar(f'{metric.name}/train', metric.get_value(), epoch)
@@ -191,9 +196,11 @@ def valid(epoch, dataloader, model, criterion, metrics, writer, args, device):
         mean_loss += criterion(output, gt)
         metrics(output, gt)
     
-    writer.add_images('Images/valid/input', torchvision.utils.make_grid(lr[:min(args.batch_size, 4)], nrow=2).unsqueeze(0), epoch)
-    writer.add_images('Images/valid/groundtruth', torchvision.utils.make_grid(gt[:min(args.batch_size, 4)], nrow=2).unsqueeze(0), epoch)
-    writer.add_images('Images/valid/output', torchvision.utils.make_grid(output[:min(args.batch_size, 4)], nrow=2).unsqueeze(0), epoch)
+    channel_idx = random.randint(0, args.channels - 4) if args.channels > 3 else 0
+
+    writer.add_images('Images/valid/input', torchvision.utils.make_grid(lr[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
+    writer.add_images('Images/valid/groundtruth', torchvision.utils.make_grid(gt[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
+    writer.add_images('Images/valid/output', torchvision.utils.make_grid(output[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
     writer.add_scalar('Loss/valid', mean_loss/len(dataloader), epoch)
     for metric in metrics.metrics:
         writer.add_scalar(f'{metric.name}/valid', metric.get_value(), epoch)
@@ -236,8 +243,8 @@ def main():
     # Metrics
     my_dists = DISTS().to(device=device)
     my_lpips = LPIPS(net='alex').to(device=device)
-    train_metrics = MetricsList(PSNR(), CustomSSIM(), CustomLPIPS(my_lpips), CustomDists(my_dists))
-    valid_metrics = MetricsList(PSNR(), CustomSSIM(), CustomLPIPS(my_lpips), CustomDists(my_dists))
+    train_metrics = MetricsList(PSNR(), CustomSSIM(args.channels), CustomLPIPS(my_lpips), CustomDists(my_dists))
+    valid_metrics = MetricsList(PSNR(), CustomSSIM(args.channels), CustomLPIPS(my_lpips), CustomDists(my_dists))
 
     # Training Hyperparameters
     criterion = torch.nn.L1Loss()
@@ -293,7 +300,9 @@ def main():
     print(f"Training {model.__class__.__name__} with {sum(p.numel() for p in model.parameters())} parameters from epoch {start_epoch}")
     for e in range(start_epoch, args.epochs):
         train(e, train_dataloader, model, criterion, optimizer, lr_scheduler, scaler, gradient_clipping, train_metrics, writer, args, device)
-        valid(e, valid_dataloader, model, criterion, valid_metrics, writer, args, device)
+
+        if e % args.valid_interval == 0:
+            valid(e, valid_dataloader, model, criterion, valid_metrics, writer, args, device)
 
         # Save best model
         if valid_metrics.metrics[0].get_value() > best_metric:
@@ -321,7 +330,7 @@ def main():
             }, os.path.join(args.checkpoint, run, 'checkpoint.pt'))
 
         # Early stopping
-        if e - best_epoch > args.patience and e > 624:
+        if e - best_epoch > args.patience and e > ((args.decay_steps[3] // len(train_dataloader)) + 20):
             print(f"Early stopping at epoch {e} as there's been no improvement in {valid_metrics.metrics[0].name} for {args.patience} epochs")
             break
     
@@ -330,9 +339,9 @@ def main():
 
     # Copy saved checkpoint to official weights folder
     weights = torch.load(os.path.join(args.checkpoint, run, 'best_checkpoint.pt'))['model']
-    torch.save({'model': weights}, os.path.join('weights', f'{model.__class__.__name__.lower()}_{run}.pt'))
+    torch.save({'model': weights}, os.path.join('weights', f'{args.name}.pt'))
 
 if __name__ == "__main__":
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
     main()

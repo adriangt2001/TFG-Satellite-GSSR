@@ -52,7 +52,7 @@ class GSASR(nn.Module):
         self.gaussian_primary_head = GaussianPrimaryHead(self.out_features, num_colors, self.window_size)
 
         # Gaussian Rasterizer
-        self.gaussian_rasterizer = GaussianRasterizer()
+        self.gaussian_rasterizer = GaussianRasterizer(num_colors)
 
     def forward(self, input_image: torch.Tensor, scaling_factor):
         B, C, H, W = input_image.shape

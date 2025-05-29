@@ -7,6 +7,7 @@ backbone:
   backbone_features: 64
 
 model:
+  name: GSatelite_MS
   channels: 12
   model_features: 180
   window_size: 12
@@ -17,16 +18,16 @@ model:
   mlp_ratio: 4.
 
 training:
-  epochs: 1000
-  batch_size: 2
-  pretrained_backbone: /home/msiau/workspace/TFG-Satellite-GSSR/weights/edsr_baseline_x2.pt
-  lr: 2e-4
-  warmup_iterations: 2000
-  decay_steps: [250000, 400000, 450000, 475000]
+  epochs: 2000
+  batch_size: 9
+  lr: 4e-5
+  warmup_iterations: 3000
+  decay_steps: [500000, 650000, 700000, 750000]
   decay_factor: 0.5
   gclip_type: norm
   gclip_value: 1.0
+  valid_interval: 5
   patience: 50
   save_interval: 5
   checkpoint: checkpoints/ms
-  logs: logs/ms
+  log: logs/ms
