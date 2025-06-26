@@ -15,7 +15,7 @@ import lpips
 
 from data import DIV2K
 from models import GSASR, EDSR
-from metrics import MetricsList, PSNR, CustomSSIM, CustomDists, CustomLPIPS
+from metrics import MetricsList, PSNR, CustomSSIM, CustomDISTS, CustomLPIPS
 
 # Warning suppression
 import warnings
@@ -169,7 +169,7 @@ def main():
     my_dists.eval()
     my_lpips = lpips.LPIPS(net='alex').to(device=device)
     my_lpips.eval()
-    metrics = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDists(my_dists), CustomLPIPS(my_lpips))
+    metrics = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDISTS(my_dists), CustomLPIPS(my_lpips))
     metrics_dict = {metric.name: [] for metric in metrics}
     metrics_dict['scale'] = []
 

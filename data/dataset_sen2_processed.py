@@ -12,7 +12,7 @@ class Sentinel2Processed(torch.utils.data.Dataset):
         self.mode = mode
         self.phase = phase
         self.transforms = transforms
-        path = os.path.join(path, phase, 'processed_data')
+        path = os.path.join(path, phase, 'bicubic_data')
 
         self.images = self.load_data(path)
     
@@ -24,7 +24,19 @@ class Sentinel2Processed(torch.utils.data.Dataset):
             img = torch.load(img_path)
             images.append(img)
         
-        return images
+        return torch.stack(images, dim=0)
+
+    def to(self, device):
+        self.images = self.images.to(device=device)
+
+    def max(self, dim=None):
+        return self.images[3:].max(dim).values if dim else self.images.max()
+    
+    def min(self, dim=None):
+        return self.images[3:].min(dim).values if dim else self.images.min()
+    
+    def quantile(self, q=[0.5]):
+        return self.images[3:].quantile(torch.tensor(q).to(device=self.images.device), keepdim=True)
 
     def __len__(self):
         return len(self.images)
@@ -95,16 +107,37 @@ class ScaleBatchSampler(torch.utils.data.Sampler):
         return self.dataset_size
 
 if __name__ == '__main__':
-    from torch.utils.data import DataLoader
-    dataset = Sentinel2Processed('/home/msiau/data/tmp/agarciat/Sentinel-2', phase='val')
-    print(dataset[0][0].min())
-    batch_size = 2
-    sampler = ScaleBatchSampler(len(dataset), batch_size)
-    dataloader = DataLoader(
-        dataset,
-        batch_sampler=sampler,
-        num_workers=4
-    )
+    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    device = 'cuda'
+    
+    with torch.no_grad():
+        phase = 'train'
+        dataset = Sentinel2Processed('/home/msiau/data/tmp/agarciat/Sentinel-2', phase=phase)
+        dataset.to(device)
+        
+        # Determine the number of images
+        num_images = dataset.images.shape[0]
+        
+        # Calculate max values for each image by flattening C, H, W dimensions
+        # This results in a 1D tensor of shape [num_images]
+        max_per_image = dataset.images.view(num_images, -1).max(dim=1).values
+        
+        # Calculate min values for each image by flattening C, H, W dimensions
+        # This results in a 1D tensor of shape [num_images]
+        min_per_image = dataset.images.view(num_images, -1).min(dim=1).values
 
-    for (lr, gt, scale) in tqdm(dataloader, ascii=True):
-        pass
+        # Max analysis
+        print(f"{phase} global max value = {dataset.max()}") # Overall max value in the entire dataset
+        print(f"{phase} mean of per-image max values = {max_per_image.mean()}")
+        print(f"{phase} median of per-image max values = {max_per_image.median()}")
+        print(f"{phase} quantile 0.9 of per-image max values = {torch.quantile(max_per_image, torch.tensor(0.9).to(device=device))}")
+
+        # Min analysis
+        print(f"{phase} global min value = {dataset.min()}") # Overall min value in the entire dataset
+        print(f"{phase} mean of per-image min values = {min_per_image.mean()}")
+        print(f"{phase} median of per-image min values = {min_per_image.median()}")
+        print(f"{phase} quantile 0.9 of per-image min values = {torch.quantile(min_per_image, torch.tensor(0.9).to(device=device))}")
+
+        # Outliers analysis
+        # print(f"{phase} quantile 0.9 values = {dataset.quantile([0.9])}")

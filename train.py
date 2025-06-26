@@ -18,7 +18,7 @@ from lpips import LPIPS
 # Custom imports
 from data import DIV2K, Sentinel2Processed, ScaleBatchSampler
 from models import EDSR, GSASR
-from metrics import MetricsList, PSNR, CustomSSIM, CustomLPIPS, CustomDists
+from metrics import MetricsList, PSNR, CustomSSIM, CustomLPIPS, CustomDISTS
 
 # Warning supresion
 import warnings
@@ -127,16 +127,19 @@ def parse_args():
 
     return args
 
-def generate_dataset(args):
+def generate_dataset(args, transforms):
     if os.path.basename(args.dataset) == 'DIV2K':
-        train_dataset = DIV2K(args.dataset, phase='train', seed=args.seed)
-        val_dataset = DIV2K(args.dataset, phase='valid', seed=args.seed)
+        train_dataset = DIV2K(args.dataset, phase='train', transforms=transforms, seed=args.seed)
+        val_dataset = DIV2K(args.dataset, phase='valid', transforms=transforms, seed=args.seed)
         return train_dataset, val_dataset
     elif os.path.basename(args.dataset) == 'Sentinel-2':
         mode = 'rgb' if args.channels == 3 else 'ms'
-        train_dataset = Sentinel2Processed(args.dataset, mode=mode, phase='train', seed=args.seed)
-        val_dataset = Sentinel2Processed(args.dataset, mode=mode, phase='valid', seed=args.seed)
+        train_dataset = Sentinel2Processed(args.dataset, mode=mode, phase='train', transforms=transforms, seed=args.seed)
+        val_dataset = Sentinel2Processed(args.dataset, mode=mode, phase='valid', transforms=transforms, seed=args.seed)
         return train_dataset, val_dataset
+
+def save_tensor(t, name):
+    torch.save(t, f"investigation/{name}.pt")
 
 def train(epoch, dataloader, model, criterion, optimizer, lr_scheduler, scaler, gclipping, metrics, writer, args, device):
     mean_loss = 0.
@@ -144,6 +147,7 @@ def train(epoch, dataloader, model, criterion, optimizer, lr_scheduler, scaler, 
 
     model.train()
     metrics.reset()
+    
     with tqdm(dataloader, desc=f"Epoch[{epoch+1}/{args.epochs}]", unit=f"batches") as pbar:
         for i, (lr, gt, scale) in enumerate(pbar):
             current_iter = global_iter + i
@@ -156,6 +160,19 @@ def train(epoch, dataloader, model, criterion, optimizer, lr_scheduler, scaler, 
             with torch.amp.autocast(device):
                 output = model(lr, scale[0].item())
                 loss = criterion(output, gt)
+                isNan = torch.isnan(loss)
+                if torch.any(isNan):
+                    # save_tensor(lr[torch.any(isNan, dim=0)], "lr")
+                    # writer.add_image('Image/train/lr_anomaly', lr[torch.any(isNan, dim=0)], global_iter)
+
+                    # save_tensor(gt[torch.any(isNan, dim=0)], "gt")
+                    # writer.add_image('Image/train/gt_anomaly', gt[torch.any(isNan, dim=0)], global_iter)
+                    
+                    # save_tensor(output[torch.any(isNan, dim=0)], "output")
+                    # writer.add_image('Image/train/output_anomaly', output[torch.any(isNan, dim=0)], global_iter)
+
+                    raise ValueError(f"NaN appeared at iteration {global_iter} (epoch {epoch}). Size of related tensors are {lr.shape=}, {gt.shape=}, {output.shape=}, {loss.shape=}.\
+                                     NaNs in\nLr image: {torch.any(torch.isnan(lr), dim=0)}\nGt image: {torch.any(torch.isnan(gt), dim=0)}\nOutput image: {torch.any(torch.isnan(output), dim=0)}\nLoss: {torch.any(torch.isnan(loss), dim=0)}")
             
             scaler.scale(loss).backward()
 
@@ -176,11 +193,11 @@ def train(epoch, dataloader, model, criterion, optimizer, lr_scheduler, scaler, 
     
     channel_idx = random.randint(0, args.channels - 4) if args.channels > 3 else 0
 
-    writer.add_images('Images/valid/input', torchvision.utils.make_grid(lr[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
-    writer.add_images('Images/valid/groundtruth', torchvision.utils.make_grid(gt[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
-    writer.add_images('Images/valid/output', torchvision.utils.make_grid(output[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
+    writer.add_images('Images/train/input', torchvision.utils.make_grid(lr[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
+    writer.add_images('Images/train/groundtruth', torchvision.utils.make_grid(gt[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
+    writer.add_images('Images/train/output', torchvision.utils.make_grid(output[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
     writer.add_scalar('Loss/train', mean_loss/len(dataloader), epoch)
-    for metric in metrics.metrics:
+    for metric in metrics:
         writer.add_scalar(f'{metric.name}/train', metric.get_value(), epoch)
 
 @torch.no_grad()
@@ -202,7 +219,7 @@ def valid(epoch, dataloader, model, criterion, metrics, writer, args, device):
     writer.add_images('Images/valid/groundtruth', torchvision.utils.make_grid(gt[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
     writer.add_images('Images/valid/output', torchvision.utils.make_grid(output[:min(args.batch_size, 4), channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), epoch)
     writer.add_scalar('Loss/valid', mean_loss/len(dataloader), epoch)
-    for metric in metrics.metrics:
+    for metric in metrics:
         writer.add_scalar(f'{metric.name}/valid', metric.get_value(), epoch)
 
 def main():
@@ -219,11 +236,12 @@ def main():
     
     # Transforms
     transforms = Compose([
-
+        torchvision.transforms.RandomVerticalFlip(),
+        torchvision.transforms.RandomHorizontalFlip()
     ])
 
     # Dataset
-    train_dataset, valid_dataset = generate_dataset(args)
+    train_dataset, valid_dataset = generate_dataset(args, transforms)
     
     train_sampler = ScaleBatchSampler(len(train_dataset), args.batch_size, num_scales=4, shuffle=True)
     train_dataloader = DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=4)
@@ -239,12 +257,13 @@ def main():
     # Model
     model = GSASR(backbone, args.model_features, args.window_size, args.num_heads, args.gaussian_interaction_blocks, args.channels, 
                   raster_ratio=args.raster_ratio, m=args.gaussian_density, mlp_ratio=args.mlp_ratio).to(device=device)
+    opt_model = torch.compile(model, mode="reduce-overhead")
     
     # Metrics
     my_dists = DISTS().to(device=device)
     my_lpips = LPIPS(net='alex').to(device=device)
-    train_metrics = MetricsList(PSNR(), CustomSSIM(args.channels), CustomLPIPS(my_lpips), CustomDists(my_dists))
-    valid_metrics = MetricsList(PSNR(), CustomSSIM(args.channels), CustomLPIPS(my_lpips), CustomDists(my_dists))
+    train_metrics = MetricsList(PSNR(), CustomSSIM(args.channels), CustomLPIPS(my_lpips), CustomDISTS(my_dists))
+    valid_metrics = MetricsList(PSNR(), CustomSSIM(args.channels), CustomLPIPS(my_lpips), CustomDISTS(my_dists))
 
     # Training Hyperparameters
     criterion = torch.nn.L1Loss()
@@ -297,25 +316,27 @@ def main():
     writer = torch.utils.tensorboard.SummaryWriter(log_dir=os.path.join(args.log, run))
     writer.add_text('Arguments', '\n'.join([f"{key}: {value}" for key, value in vars(args).items()]))
 
+    torch.autograd.set_detect_anomaly(True)
+
     print(f"Training {model.__class__.__name__} with {sum(p.numel() for p in model.parameters())} parameters from epoch {start_epoch}")
     for e in range(start_epoch, args.epochs):
-        train(e, train_dataloader, model, criterion, optimizer, lr_scheduler, scaler, gradient_clipping, train_metrics, writer, args, device)
+        train(e, train_dataloader, opt_model, criterion, optimizer, lr_scheduler, scaler, gradient_clipping, train_metrics, writer, args, device)
 
         if e % args.valid_interval == 0:
-            valid(e, valid_dataloader, model, criterion, valid_metrics, writer, args, device)
+            valid(e, valid_dataloader, opt_model, criterion, valid_metrics, writer, args, device)
 
-        # Save best model
-        if valid_metrics.metrics[0].get_value() > best_metric:
-            best_metric = valid_metrics.metrics[0].get_value()
-            best_epoch = e
-            torch.save({
-                'epoch': e,
-                'best_metric': best_metric,
-                'best_epoch': best_epoch,
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'lr_scheduler': lr_scheduler.state_dict(),
-            }, os.path.join(args.checkpoint, run, 'best_checkpoint.pt'))
+            # Save best model
+            if valid_metrics.metrics[0].get_value() > best_metric:
+                best_metric = valid_metrics.metrics[0].get_value()
+                best_epoch = e
+                torch.save({
+                    'epoch': e,
+                    'best_metric': best_metric,
+                    'best_epoch': best_epoch,
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'lr_scheduler': lr_scheduler.state_dict(),
+                }, os.path.join(args.checkpoint, run, 'best_checkpoint.pt'))
             
 
         # Save checkpoint
@@ -330,7 +351,7 @@ def main():
             }, os.path.join(args.checkpoint, run, 'checkpoint.pt'))
 
         # Early stopping
-        if e - best_epoch > args.patience and e > ((args.decay_steps[3] // len(train_dataloader)) + 20):
+        if e - best_epoch > args.patience and e > ((args.decay_steps[3] // len(train_dataloader)) + 50):
             print(f"Early stopping at epoch {e} as there's been no improvement in {valid_metrics.metrics[0].name} for {args.patience} epochs")
             break
     
@@ -343,5 +364,5 @@ def main():
 
 if __name__ == "__main__":
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     main()

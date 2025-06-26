@@ -48,8 +48,8 @@ RasterizeGaussiansCUDA(
     
     torch::Tensor out_color = torch::zeros({batch_size, sH, sW, num_channels}, opacity.options());
 
-    dim3 grid((sH + BLOCK_X - 1) / BLOCK_X * (sW + BLOCK_Y - 1) / BLOCK_Y);
     dim3 block(BLOCK_X * BLOCK_Y);
+    dim3 grid((num_gaussians + block.x - 1) / block.x);
 
     for (int b = 0; b < batch_size; b++) {
         CHECK_CUDA(FORWARD::render(
@@ -97,8 +97,9 @@ RasterizeGaussiansBackwardCUDA(
     torch::Tensor dL_drhos = torch::zeros_like(rhos);
     torch::Tensor dL_dcolors = torch::zeros_like(colors);
 
-    dim3 grid((sW + BLOCK_X - 1) / BLOCK_X * (sH + BLOCK_Y - 1) / BLOCK_Y);
     dim3 block(BLOCK_X * BLOCK_Y);
+    dim3 grid((num_gaussians + block.x - 1) / block.x);
+    
     for (int b = 0; b < batch_size; b++) {
         CHECK_CUDA(BACKWARD::render(
             grid, block,

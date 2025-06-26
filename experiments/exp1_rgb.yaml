@@ -20,14 +20,14 @@ model:
 training:
   epochs: 2000
   batch_size: 9
-  lr: 4e-5
-  warmup_iterations: 3000
-  decay_steps: [500000, 650000, 700000, 750000]
+  lr: 7.5e-5
+  warmup_iterations: 2000
+  decay_steps: [500000, 800000, 900000, 950000]
   decay_factor: 0.5
   gclip_type: norm
   gclip_value: 1.0
   valid_interval: 5
-  patience: 50
+  patience: 100
   save_interval: 5
   checkpoint: checkpoints/rgb
   log: logs/rgb

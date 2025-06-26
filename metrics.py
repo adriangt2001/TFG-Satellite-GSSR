@@ -25,39 +25,74 @@ class Metric:
         return f"{self.name}: {self.get_value():.2f}"
 
 class PSNR(Metric):
-    def __init__(self):
+    def __init__(self, data_range=1.0):
         super().__init__('PSNR')
+        self.data_range = data_range
 
     @torch.no_grad()
     def __call__(self, img1, img2):
         img1, img2 = super().__call__(img1, img2)
-        data_range = img2.max() - img2.min()
         mse = torch.mean((img1 - img2) ** 2)
         if mse == 0:
             single_value = 1000
             self.value += single_value
         else:
-            single_value = 10 * torch.log10((torch.tensor(data_range ** 2)) / mse).item()
+            single_value = 10 * torch.log10((torch.tensor(self.data_range ** 2)) / mse).item()
+            self.value += single_value
+        self.num_calls += 1
+        return single_value
+
+class PSNR_RGB(Metric):
+    def __init__(self, data_range=1.0):
+        super().__init__('PSNR')
+        self.data_range = data_range
+
+    @torch.no_grad()
+    def __call__(self, img1, img2):
+        img1, img2 = super().__call__(img1, img2)
+        mse = torch.mean((img1[:, :3, ...] - img2[:, :3, ...]) ** 2)
+        if mse == 0:
+            single_value = 1000
+            self.value += single_value
+        else:
+            single_value = 10 * torch.log10((torch.tensor(self.data_range ** 2)) / mse).item()
             self.value += single_value
         self.num_calls += 1
         return single_value
 
 class CustomSSIM(Metric):
-    def __init__(self, channels):
+    def __init__(self, channels, data_range=1.0):
         super().__init__('SSIM')
-        self.channels = channels
+        self.data_range = data_range
+        self.ssim = SSIM(data_range=data_range, size_average=True, channel=channels)
 
     @torch.no_grad()
     def __call__(self, img1: torch.Tensor, img2: torch.Tensor):
         img1, img2 = super().__call__(img1, img2)
 
         data_range = img2.max() - img2.min()
-        single_value = SSIM(data_range=data_range, size_average=True, channel=self.channels)(img1, img2).item()
+        single_value = self.ssim(img1, img2).item()
         self.value += single_value
         self.num_calls += 1
         return single_value
 
-class CustomDists(Metric):
+class CustomSSIM_RGB(Metric):
+    def __init__(self, channels, data_range=1.0):
+        super().__init__('SSIM')
+        self.data_range = data_range
+        self.ssim = SSIM(data_range=data_range, size_average=True, channel=3)
+
+    @torch.no_grad()
+    def __call__(self, img1: torch.Tensor, img2: torch.Tensor):
+        img1, img2 = super().__call__(img1, img2)
+
+        data_range = img2[:, :3, ...].max() - img2[:, :3, ...].min()
+        single_value = self.ssim(img1[:, :3, ...], img2[:, :3, ...]).item()
+        self.value += single_value
+        self.num_calls += 1
+        return single_value
+
+class CustomDISTS(Metric):
     def __init__(self, dists):
         super().__init__('DISTS')
         self.d = dists.eval()
@@ -125,8 +160,8 @@ if __name__ == '__main__':
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
     os.environ['CUDA_VISIBLE_DEVICES'] = '6'
     print("Metrics")
-    metric = MetricsList(PSNR(), CustomSSIM(), CustomDists(device='cuda'), CustomLPIPS(device='cuda'))
-    metric2 = MetricsList(PSNR(), CustomSSIM(), CustomDists(device='cuda'), CustomLPIPS(device='cuda'))
+    metric = MetricsList(PSNR(), CustomSSIM(), CustomDISTS(device='cuda'), CustomLPIPS(device='cuda'))
+    metric2 = MetricsList(PSNR(), CustomSSIM(), CustomDISTS(device='cuda'), CustomLPIPS(device='cuda'))
     img1 = torch.rand(5, 3, 256, 256, device='cuda')
     img2 = torch.rand(5, 3, 256, 256, device='cuda')
     metric(img1, img2)
