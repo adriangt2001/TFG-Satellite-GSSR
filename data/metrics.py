@@ -50,7 +50,7 @@ class PSNR_RGB(Metric):
     @torch.no_grad()
     def __call__(self, img1, img2):
         img1, img2 = super().__call__(img1, img2)
-        mse = torch.mean((img1[:, :3, ...] - img2[:, :3, ...]) ** 2)
+        mse = torch.mean((img1[:, :4, ...] - img2[:, :4, ...]) ** 2)
         if mse == 0:
             single_value = 1000
             self.value += single_value
@@ -70,7 +70,6 @@ class CustomSSIM(Metric):
     def __call__(self, img1: torch.Tensor, img2: torch.Tensor):
         img1, img2 = super().__call__(img1, img2)
 
-        data_range = img2.max() - img2.min()
         single_value = self.ssim(img1, img2).item()
         self.value += single_value
         self.num_calls += 1
@@ -80,14 +79,13 @@ class CustomSSIM_RGB(Metric):
     def __init__(self, channels, data_range=1.0):
         super().__init__('SSIM')
         self.data_range = data_range
-        self.ssim = SSIM(data_range=data_range, size_average=True, channel=3)
+        self.ssim = SSIM(data_range=data_range, size_average=True, channel=channels)
 
     @torch.no_grad()
     def __call__(self, img1: torch.Tensor, img2: torch.Tensor):
         img1, img2 = super().__call__(img1, img2)
 
-        data_range = img2[:, :3, ...].max() - img2[:, :3, ...].min()
-        single_value = self.ssim(img1[:, :3, ...], img2[:, :3, ...]).item()
+        single_value = self.ssim(img1[:, :4, ...], img2[:, :4, ...]).item()
         self.value += single_value
         self.num_calls += 1
         return single_value

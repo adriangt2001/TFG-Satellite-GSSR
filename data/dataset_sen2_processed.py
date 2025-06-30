@@ -12,7 +12,7 @@ class Sentinel2Processed(torch.utils.data.Dataset):
         self.mode = mode
         self.phase = phase
         self.transforms = transforms
-        path = os.path.join(path, phase, 'bicubic_data')
+        path = os.path.join(path, phase, 'processed_data')
 
         self.images = self.load_data(path)
     

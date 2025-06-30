@@ -1,21 +1,24 @@
 import os
-import pandas as pd
-import argparse
-import yaml
 import cv2
-
-import torch.utils.tensorboard
+import yaml
+import random
+import argparse
+import pandas as pd
 from tqdm import tqdm
 
 import torch
+import torch.utils.tensorboard
+
 import torchvision
 
-from DISTS_pytorch import DISTS
-import lpips
+from imresize import imresize
 
-from data import DIV2K
-from models import GSASR, EDSR
-from metrics import MetricsList, PSNR, CustomSSIM, CustomDISTS, CustomLPIPS
+from DISTS_pytorch import DISTS
+from lpips import LPIPS
+
+from data import DIV2K, Sentinel2Processed
+from models import EDSR, GausSat
+from data.metrics import PSNR_RGB, CustomSSIM_RGB, CustomLPIPS, CustomDISTS, MetricsList
 
 # Warning suppression
 import warnings
@@ -90,6 +93,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=4, help="Batch size per iteration.")
     parser.add_argument('--scales', type=int, nargs='+', help="Scales to test the model")
     parser.add_argument('--log', type=str, default='logs', help="Root directory to store logs.")
+    parser.add_argument('--imgs', type=str, default='imgs', help="Root directory to save images.")
     parser.add_argument('--results', type=str, default='results/metrics_patches_run4.csv', help="Relative path to file directory to store results.")
 
     tmp_args = parser.parse_args()
@@ -105,49 +109,66 @@ def parse_args():
     check_args(args)
     return args
 
-def pad_image_divisible(image, divisible):
-    _, _, H, W = image.shape
-    padding_h = divisible - H % divisible
-    padding_w = divisible - W % divisible
-    return torch.nn.functional.pad(image, (0, padding_w, 0, padding_h))
+def generate_dataset(args):
+    if os.path.basename(args.dataset) == 'DIV2K':
+        test_dataset = DIV2K(args.dataset, phase='test')
+        return test_dataset
+    elif os.path.basename(args.dataset) == 'Sentinel-2':
+        mode = 'rgb' if args.channels == 3 else 'ms'
+        test_dataset = Sentinel2Processed(args.dataset, mode=mode, phase='test')
+        return test_dataset
 
-def window_image(image, window_size):
-    _, C, H, W = image.shape
-    window = image.view(-1, C, H // window_size, window_size, W // window_size, window_size).permute(0, 2, 4, 1, 3, 5).contiguous().view(-1, C, window_size, window_size)
-    return window
+def crop_image(imgs, window_size):
+    if imgs.dim == 3:
+        imgs.unsqueeze(0)
+    
+    B, C, H, W = imgs.shape
+    
+    extra_height = H % window_size
+    extra_width = W % window_size
 
-def reverse_window_image(window, H, W):
-    _, C, window_size, _ = window.shape
-    image = window.view(-1, H // window_size, W // window_size, C, window_size, window_size).permute(0, 3, 1, 4, 2, 5).contiguous().view(-1, C, H, W)
-    return image
+    num_height_windows = H // window_size
+    num_width_windows = W // window_size
 
-def test(model, dataloader,  scale, metrics, writer, device):
+    windowed_imgs = imgs[..., :H-extra_height, :W-extra_width].view(-1, C, num_height_windows, window_size, num_width_windows, window_size).permute(0, 2, 4, 1, 3, 5).contiguous().view(-1, C, window_size, window_size)
+    return windowed_imgs
+
+def downsampling(imgs, scale):
+    if imgs.dim == 3:
+        imgs.unsqueeze(0)
+
+    imgs_list = [torch.from_numpy(imresize(sample.permute(1, 2, 0).cpu().numpy(), scalar_scale=1/scale)).permute(2, 0, 1).contiguous() for sample in imgs]
+    lr_images = torch.stack(imgs_list, dim=0).to(dtype=torch.float32)
+    return lr_images
+
+def test(model, dataloader, scale, metrics, writer, imgs_folder, device, args):
+    print(imgs_folder)
     model.eval()
     metrics.reset()
-    
+
     for gt in tqdm(dataloader, desc=f"Testing x{scale} scaling", unit="batches", ascii=True):
-        gt = gt.to(device='cuda')
-        padded_gt = pad_image_divisible(gt, 48 * scale)
-        _, _, H, W = padded_gt.shape
-        patched_gt = window_image(padded_gt, 48 * scale)
-        padded_lr = torch.nn.functional.interpolate(padded_gt, scale_factor=1/scale, mode='bicubic', antialias=True)
-        patched_lr = window_image(padded_lr, 48)
+        gt_patches = crop_image(gt, 48 * scale)
 
-        patched_output = torch.zeros_like(patched_gt)
-        for idx, lr_patch in enumerate(patched_lr):
-            patched_output[idx] = model(lr_patch.unsqueeze(0), scale)
-            metrics(patched_output[idx].unsqueeze(0), patched_gt[idx].unsqueeze(0))
-    
-    writer.add_images('Images/gt', torchvision.utils.make_grid(patched_gt[:4], nrow=2).unsqueeze(0), scale)
-    writer.add_images('Images/input', torchvision.utils.make_grid(patched_lr[:4], nrow=2).unsqueeze(0), scale)
-    writer.add_images('Images/output', torchvision.utils.make_grid(patched_output[:4], nrow=2).unsqueeze(0), scale)
+        lr_patches = downsampling(gt_patches, scale)
+        
+        output_patches = torch.zeros_like(gt_patches)
+        for batch in range(0, lr_patches.shape[0], args.batch_size):
+            output_patches[batch:batch+min(args.batch_size, output_patches.shape[0] - batch)] = model(lr_patches[batch:batch+min(args.batch_size, lr_patches.shape[0] - batch)].to(device=device), scale).to(device='cpu')
+            metrics(output_patches[batch:batch+min(args.batch_size, output_patches.shape[0] - batch)].to(device=device), gt_patches[batch:batch+min(args.batch_size, gt_patches.shape[0] - batch)].to(device=device))
 
-    cv2.imwrite(f'imgs_patches_run4/lr_x{scale}.png', cv2.cvtColor(patched_lr[0].cpu().permute(1, 2, 0).numpy(), cv2.COLOR_RGB2BGR))
-    cv2.imwrite(f'imgs_patches_run4/output_x{scale}.png', cv2.cvtColor(patched_output[0].cpu().permute(1, 2, 0).numpy(), cv2.COLOR_RGB2BGR))
+    channel_idx = random.randint(0, args.channels - 4) if args.channels > 3 else 0
 
+    writer.add_images('Images/test/input', torchvision.utils.make_grid(lr_patches[-4:, channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), scale)
+    writer.add_images('Images/test/groundtruth', torchvision.utils.make_grid(gt_patches[-4:, channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), scale)
+    writer.add_images('Images/test/output', torchvision.utils.make_grid(output_patches[-4:, channel_idx:channel_idx + 3], nrow=2).unsqueeze(0), scale)
+    for metric in metrics:
+        writer.add_scalar(f'{metric.name}/test', metric.get_value(), scale)
+
+    img_idx = random.randint(0, lr_patches.shape[0] - 1)
+        
 def main():
     if not torch.cuda.is_available():
-        print("CUDA is not available. Cant't train")
+        print("CUDA is not available. Cant't test")
         return
     
     device='cuda'
@@ -156,39 +177,44 @@ def main():
 
     # Load model
     backbone = EDSR(args.channels, args.resblocks, args.backbone_features)
-    model = GSASR(backbone, args.model_features, args.window_size, args.num_heads, args.gaussian_interaction_blocks, args.channels,
+    model = GausSat(backbone, args.model_features, args.window_size, args.num_heads, args.gaussian_interaction_blocks, args.channels,
                   raster_ratio=args.raster_ratio, m=args.gaussian_density, mlp_ratio=args.mlp_ratio).to(device=device)
     model.load_state_dict(torch.load(args.weights)['model'])
 
     # Load data
-    test_dataset = DIV2K(args.dataset, phase='test')
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, num_workers=4)
+    test_dataset = generate_dataset(args)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, num_workers=4)
 
     # Metrics
     my_dists = DISTS().to(device=device)
     my_dists.eval()
-    my_lpips = lpips.LPIPS(net='alex').to(device=device)
+    my_lpips = LPIPS(net='alex').to(device=device)
     my_lpips.eval()
-    metrics = MetricsList(PSNR(data_range=1.), CustomSSIM(data_range=1.), CustomDISTS(my_dists), CustomLPIPS(my_lpips))
+    metrics = MetricsList(PSNR_RGB(data_range=1.), CustomSSIM_RGB(channels=4, data_range=1.), CustomDISTS(my_dists), CustomLPIPS(my_lpips))
     metrics_dict = {metric.name: [] for metric in metrics}
     metrics_dict['scale'] = []
+    for metric in metrics:
+        metrics_dict[metric.name] = []
 
     # Logs
-    writer = torch.utils.tensorboard.SummaryWriter(log_dir=os.path.join(args.log, 'test_results_patches_run4'))
+    test_name = f"Test{len(os.listdir(args.log))}"
+    writer = torch.utils.tensorboard.SummaryWriter(log_dir=os.path.join(args.log, test_name))
+
+    imgs_folder = os.path.join(args.imgs, test_name)
+    os.makedirs(imgs_folder, exist_ok=True)
 
     # Test
     for scale in args.scales:
-        test(model, test_dataloader, scale, metrics, writer, device)
+        test(model, test_dataloader, scale, metrics, writer, imgs_folder, device, args)
         metrics_dict['scale'].append(scale)
         for metric in metrics:
             metrics_dict[metric.name].append(metric.get_value())
-            writer.add_scalar(metric.name, metric.get_value(), scale)
     
     # Save to .csv
-    pd.DataFrame(metrics_dict).to_csv(args.results)
+    pd.DataFrame(metrics_dict).to_csv(os.path.join(args.results, f'{test_name}.csv'))
 
 if __name__ == '__main__':
-    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    # os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     with torch.no_grad():
         main()

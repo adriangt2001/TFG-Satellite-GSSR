@@ -17,8 +17,8 @@ from lpips import LPIPS
 
 # Custom imports
 from data import DIV2K, Sentinel2Processed, ScaleBatchSampler
-from models import EDSR, GSASR
-from metrics import MetricsList, PSNR, CustomSSIM, CustomLPIPS, CustomDISTS
+from models import EDSR, GausSat
+from data.metrics import MetricsList, PSNR, CustomSSIM, CustomLPIPS, CustomDISTS
 
 # Warning supresion
 import warnings
@@ -255,7 +255,7 @@ def main():
         backbone.load_state_dict(torch.load(args.pretrained_backbone), strict=False)
     
     # Model
-    model = GSASR(backbone, args.model_features, args.window_size, args.num_heads, args.gaussian_interaction_blocks, args.channels, 
+    model = GausSat(backbone, args.model_features, args.window_size, args.num_heads, args.gaussian_interaction_blocks, args.channels, 
                   raster_ratio=args.raster_ratio, m=args.gaussian_density, mlp_ratio=args.mlp_ratio).to(device=device)
     opt_model = torch.compile(model, mode="reduce-overhead")
     
@@ -363,6 +363,6 @@ def main():
     torch.save({'model': weights}, os.path.join('weights', f'{args.name}.pt'))
 
 if __name__ == "__main__":
-    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    # os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     main()

@@ -174,8 +174,7 @@ cython_debug/
 .vscode/
 
 # Extras
-logs/
-checkpoints/
-imgs/
+checkpoints/*
+logs/*
 results/
 wowi.*

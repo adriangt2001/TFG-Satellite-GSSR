@@ -8,7 +8,7 @@ from .gaussian_interaction_block import GaussianInteractionBlock
 from .gaussian_primary_head import GaussianPrimaryHead
 from diff_srgaussian_rasterization import GaussianRasterizer
 
-class GSASR(nn.Module):
+class GausSat(nn.Module):
     def __init__(
             self,
             backbone, # Encoder
