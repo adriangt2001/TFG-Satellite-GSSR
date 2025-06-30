@@ -22,6 +22,8 @@ This is the repository for my Computer Science bachelor's degree final thesis. I
 
 * **submodules/:** C++/CUDA files for the 2D rasterizer of GausSat.
 
+* **utils/:** Python files with different bicubic interpolation implementations.
+
 * **weights/:** Trained weights for every model used and different experiments. It has an [EDSR](https://arxiv.org/abs/1707.02921) baseline extracted directly from the official source, the [HFN](https://www.sciencedirect.com/science/article/abs/pii/S0924271622003331) weights trained by us, and the GausSat weights for each experiment we did.
 
 * **ms_preparation.py:** Script to preprocess the Sentinel-2 dataset before feeding it to GausSat.

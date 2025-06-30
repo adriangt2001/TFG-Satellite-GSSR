@@ -11,7 +11,7 @@ import torch.utils.tensorboard
 
 import torchvision
 
-from imresize import imresize
+from utils.imresize import imresize
 
 from DISTS_pytorch import DISTS
 from lpips import LPIPS
