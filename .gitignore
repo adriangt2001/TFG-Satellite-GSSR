@@ -176,5 +176,5 @@ cython_debug/
 # Extras
 checkpoints/*
 logs/*
-results/
+results/*
 wowi.*
