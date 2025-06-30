@@ -4,7 +4,6 @@
 #include <math.h>
 #include <stdio.h>
 
-template <uint32_t CHANNELS>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
     renderCUDA(
         const int numGaussians,
@@ -17,6 +16,7 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
         const int sW,
         const float scaleFactor,
         const float rasterRatio,
+        const int numChannels,
         float* __restrict__ outImage)
 {
     // Make this kernel to be per gaussian instead of per pixel
@@ -58,9 +58,9 @@ __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
             float fAlfa = f * alfa;
 
             // Eq. 2
-            for (int c = 0; c < CHANNELS; c++) {
-                int idx = rows * sW * CHANNELS + cols * CHANNELS + c;
-                float color = colors[gaussianIdx * CHANNELS + c];
+            for (int c = 0; c < numChannels; c++) {
+                int idx = rows * sW * numChannels + cols * numChannels + c;
+                float color = colors[gaussianIdx * numChannels + c];
                 atomicAdd(&outImage[idx], fAlfa * color);
             }
         }
@@ -79,9 +79,10 @@ void FORWARD::render(
     const int sW,
     const float scaleFactor,
     const float rasterRatio,
+    const int numChannels,
     float* __restrict__ outImage)
 {
-    renderCUDA<NUM_CHANNELS><<<grid, block>>>(
+    renderCUDA<<<grid, block>>>(
         numGaussians,
         opacity,
         means,
@@ -91,5 +92,6 @@ void FORWARD::render(
         sH, sW,
         scaleFactor,
         rasterRatio,
+        numChannels,
         outImage);
 }

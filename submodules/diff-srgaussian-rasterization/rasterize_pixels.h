@@ -24,6 +24,7 @@ RasterizeGaussiansCUDA(
     const int image_width,
     const float scale_factor,
     const float raster_ratio,
+    const int num_channels,
     const bool debug
 );
 
@@ -39,5 +40,6 @@ RasterizeGaussiansBackwardCUDA(
     const int image_width,
     const float scale_factor,
     const float raster_ratio,
+    const int num_channels,
     const bool debug
 );

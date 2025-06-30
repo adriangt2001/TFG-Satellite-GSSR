@@ -30,6 +30,7 @@ namespace BACKWARD
         const int sH, int sW,
         const float scaleFactor,
         const float rasterRatio,
+        const int numChannels,
         float* __restrict__ dL_dopacity,
         float2* __restrict__ dL_dmeans,
         float2* __restrict__ dL_dstds,

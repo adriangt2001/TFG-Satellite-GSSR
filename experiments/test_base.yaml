@@ -1,0 +1,31 @@
+dataset:
+  dataset: /home/msiau/data/tmp/agarciat/DIV2K
+
+backbone:
+  resblocks: 16
+  backbone_features: 64
+
+model:
+  weights: /home/msiau/workspace/TFG-Satellite-GSSR/weights/GSatelite_Base.pt
+  channels: 3
+  model_features: 180
+  window_size: 12
+  num_heads: 4
+  gaussian_interaction_blocks: 6
+  raster_ratio: 0.1
+  gaussian_density: 16
+  mlp_ratio: 4.
+
+test:
+  batch_size: 64
+  scales:
+    - 2
+    - 3
+    - 4
+    - 6
+    - 8
+    - 12
+    - 16
+  log: logs/base
+  imgs: imgs/base
+  results: results/base
